@@ -1,0 +1,1745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YeahRadar — Find Construction Opportunities Before Everyone Else</title>
+<meta name="description" content="Track permits, detect recovery projects, and find high-value construction leads in Florida. Building permits, FEMA recovery, hurricane damage, multifamily and GC leads.">
+<meta property="og:title" content="YeahRadar — Construction Opportunity Intelligence">
+<meta property="og:description" content="Find construction opportunities before everyone else. Florida permits, FEMA recovery, hurricane leads, multifamily and owner-builder projects.">
+<meta property="og:url" content="https://yeahradar.com">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#0d6efd">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#f0f4f8;font-family:'Inter',sans-serif;overflow:hidden;color:#1a2e42;}
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:#e4ecf4;}
+::-webkit-scrollbar-thumb{background:#b0c8de;border-radius:3px;}
+::-webkit-scrollbar-thumb:hover{background:#7aaac8;}
+input,select,textarea{font-family:'Inter',sans-serif;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.5;}}
+@keyframes slideIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+@keyframes glow{0%,100%{box-shadow:0 0 20px rgba(13,110,253,0.1);}50%{box-shadow:0 0 40px rgba(13,110,253,0.25);}}
+.animate-in{animation:slideIn 0.25s ease;}
+.stat-glow{animation:glow 3s ease-in-out infinite;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const{useState,useEffect,useMemo,useCallback,useRef}=React;
+
+// ── SUPABASE ──────────────────────────────────────────────────────────────────
+const SUPABASE_URL="https://vsvdnelyvlhzhptdycpg.supabase.co";
+const SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZzdmRuZWx5dmxoemhwdGR5Y3BnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzOTAzNzQsImV4cCI6MjA5Njk2NjM3NH0.29kpf3H6tdzhPR7JjEWh1f2l1kYHJYEjCaBtPR2GtlI";
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
+// ── DESIGN TOKENS ─────────────────────────────────────────────────────────────
+const T={
+  bg:"#f0f4f8", bgCard:"#ffffff", bgCardHover:"#f7fafd",
+  bgSidebar:"#0f2340", border:"#d4e2ef", borderLight:"#c0d6e8",
+  lime:"#0d6efd", limeGlow:"rgba(13,110,253,0.12)",
+  white:"#1a2e42", gray:"#6b8aaa", grayLight:"#4a6a88",
+  hot:"#dc3545", hotGlow:"rgba(220,53,69,0.1)",
+  warm:"#e67e22", hurricane:"#e74c3c", hurricaneGlow:"rgba(231,76,60,0.1)",
+  blue:"#0288d1", blueGlow:"rgba(2,136,209,0.12)",
+  green:"#1a7a5e", greenGlow:"rgba(26,122,94,0.1)",
+  purple:"#6f42c1",
+};
+
+// ── CONSTANTS ─────────────────────────────────────────────────────────────────
+const HURRICANE_KW=["substantial damage","hurricane","fema","flood","rebuild","storm damage","elevated","elevation","50%","demolished","replacement","sda","sde","withdrawn determination","helene","milton","disaster recovery","flood damage","elevation required","owner-builder","owner builder","rebuild florida","recovery program"];
+
+const PERMIT_TYPES=[
+  "All Types",
+  "Single Family New Construction",
+  "Multifamily New Construction",
+  "Commercial New Construction",
+  "Renovation / Alteration",
+  "Buildout / Tenant Improvement",
+  "Demolition",
+  "Owner-Builder",
+  "FEMA / Hurricane Recovery",
+  "Flood Damage",
+  "Substantial Damage",
+  "Addition",
+];
+const STAGES=["New","Contacted","Site Visit","Proposal Sent","Negotiating","Won","Lost"];
+const COUNTIES=["All Counties","Pinellas","Hillsborough","Orange","Osceola","Seminole","Manatee","Polk","Lee","Sarasota","Pasco"];
+const STATUSES=["All Statuses","Applied","In Review","Issued","Finaled","Expired"];
+const VALUE_RANGES=[
+  {label:"Any Value",min:0,max:Infinity},
+  {label:"Under $50K",min:0,max:50000},
+  {label:"$50K – $100K",min:50000,max:100000},
+  {label:"$100K – $250K",min:100000,max:250000},
+  {label:"$250K – $500K",min:250000,max:500000},
+  {label:"$500K – $1M",min:500000,max:1000000},
+  {label:"Over $1M",min:1000000,max:Infinity},
+];
+const YEAR_FILTERS=[
+  {label:"All Years",year:0},
+  {label:"Since 2026",year:2026},
+  {label:"Since 2025",year:2025},
+  {label:"Since 2024",year:2024},
+  {label:"Since 2023",year:2023},
+  {label:"Since 2022",year:2022},
+  {label:"Since 2021",year:2021},
+  {label:"Since 2020",year:2020},
+];
+
+const CITY_COORDS={
+  "CLEARWATER":[27.9659,-82.8001],"LARGO":[27.9095,-82.7873],
+  "ST. PETERSBURG":[27.7676,-82.6403],"SAINT PETERSBURG":[27.7676,-82.6403],"ST PETERSBURG":[27.7676,-82.6403],
+  "PINELLAS PARK":[27.8428,-82.6996],"DUNEDIN":[28.0194,-82.7718],
+  "TARPON SPRINGS":[28.15,-82.7568],"SAFETY HARBOR":[27.9934,-82.6929],
+  "PALM HARBOR":[28.0784,-82.7643],"INDIAN ROCKS BEACH":[27.8867,-82.8468],
+  "REDINGTON BEACH":[27.8128,-82.8357],"TREASURE ISLAND":[27.77,-82.7682],
+  "MADEIRA BEACH":[27.7967,-82.7946],"ST PETE BEACH":[27.7253,-82.7418],
+  "SEMINOLE":[27.8445,-82.7879],"GULFPORT":[27.7478,-82.7071],
+  "TAMPA":[27.9506,-82.4572],"BRANDON":[27.9378,-82.2859],
+  "RIVERVIEW":[27.8653,-82.329],"WESLEY CHAPEL":[28.2142,-82.3537],
+  "PLANT CITY":[28.0192,-82.1145],"RUSKIN":[27.72,-82.4318],
+  "APOLLO BEACH":[27.77,-82.4015],"LUTZ":[28.1531,-82.4582],
+  "ORLANDO":[28.5383,-81.3792],"WINTER PARK":[28.6,-81.3392],
+  "APOPKA":[28.6753,-81.5323],"KISSIMMEE":[28.292,-81.4076],
+  "SANFORD":[28.8005,-81.2731],"LAKE MARY":[28.7578,-81.3179],
+  "WINTER GARDEN":[28.5653,-81.5862],"ST. CLOUD":[28.2489,-81.2812],
+  "BRADENTON":[27.4989,-82.5748],"SARASOTA":[27.3364,-82.5307],
+  "FORT MYERS":[26.6406,-81.8723],"CAPE CORAL":[26.5629,-81.9495],
+  "LAKELAND":[28.0395,-81.9498],"WINTER HAVEN":[28.022,-81.7329],
+  "NEW PORT RICHEY":[28.2442,-82.719],"SPRING HILL":[28.4769,-82.544],
+};
+
+function getCityCoords(address){
+  if(!address)return null;
+  const u=address.toUpperCase();
+  for(const[city,coords]of Object.entries(CITY_COORDS)){
+    if(u.includes(city))return{coords,city:city.charAt(0)+city.slice(1).toLowerCase()};
+  }
+  return null;
+}
+
+function scorePermit(p){
+  if(p.score&&p.score>0)return p.score;
+  let s=0;
+  const desc=(p.description||"").toLowerCase();
+  const type=(p.permit_type||"").toLowerCase();
+  const val=parseFloat(p.project_value)||0;
+  const county=(p.county||"").toLowerCase();
+  const owner=(p.owner_name||"").toLowerCase();
+  const gc=(p.gc_name||"").toLowerCase();
+  // Hurricane / FEMA / disaster recovery
+  if(p.is_hurricane||HURRICANE_KW.some(k=>desc.includes(k)))s+=4;
+  // New construction
+  if(type.includes("new")||type.includes("construction"))s+=3;
+  // Multifamily bonus
+  if(type.includes("multifamily")||type.includes("multi")||desc.includes("multifamily"))s+=2;
+  // Owner-builder (no GC = opportunity)
+  if((!gc||gc==="—"||gc.length<2)&&(desc.includes("owner")||desc.includes("owner-builder")||desc.includes("owner builder")))s+=2;
+  // Value
+  if(val>500000)s+=2;else if(val>200000)s+=1;
+  // Hot counties
+  if(["pinellas","hillsborough","manatee","pasco"].includes(county))s+=1;
+  // Early window
+  if(p.status==="Applied"||p.status==="In Review")s+=1;
+  return Math.min(s,10);
+}
+
+function isOwnerBuilder(p){
+  const desc=(p.description||"").toLowerCase();
+  const gc=(p.gc_name||"");
+  return(!gc||gc.length<2)&&(desc.includes("owner")||desc.includes("owner-builder")||desc.includes("owner builder")||(p.permit_type||"").toLowerCase().includes("owner"));
+}
+function isHurricane(p){return p.is_hurricane||HURRICANE_KW.some(k=>(p.description||"").toLowerCase().includes(k));}
+function fmt(n){if(!n)return"—";const v=parseFloat(n);if(isNaN(v))return"—";if(v>=1000000)return`$${(v/1000000).toFixed(1)}M`;if(v>=1000)return`$${(v/1000).toFixed(0)}K`;return`$${v.toLocaleString()}`;}
+
+function parseCSV(text){
+  const lines=text.split(/\r?\n/).filter(l=>l.trim());
+  if(lines.length<2)return[];
+  const parseRow=line=>{
+    const cols=[];let cur="",inQ=false;
+    for(let i=0;i<line.length;i++){
+      if(line[i]==='"'){inQ=!inQ;continue;}
+      if(line[i]===','&&!inQ){cols.push(cur.trim());cur="";continue;}
+      cur+=line[i];
+    }
+    cols.push(cur.trim());return cols;
+  };
+  const headers=parseRow(lines[0]).map(h=>h.toLowerCase().replace(/[^a-z0-9]/g,"_"));
+  return lines.slice(1).map(l=>{
+    const cols=parseRow(l);if(cols.length<2)return null;
+    const row={};headers.forEach((h,i)=>{row[h]=cols[i]||"";});return row;
+  }).filter(Boolean);
+}
+
+function detectCounty(filename,records){
+  const fn=filename.toLowerCase();
+  // Handle common typos: "Pinelas", "Pinnelas", "Pinellas"
+  if(fn.includes("pinela")||fn.includes("pinella")||fn.includes("pinnela"))return"Pinellas";
+  if(fn.includes("hillsborough")||fn.includes("hillsbor"))return"Hillsborough";
+  if(fn.includes("orange")||fn.includes("orlando"))return"Orange";
+  if(fn.includes("osceola"))return"Osceola";
+  if(fn.includes("seminole"))return"Seminole";
+  if(fn.includes("manatee"))return"Manatee";
+  if(fn.includes("sarasota"))return"Sarasota";
+  if(fn.includes("pasco"))return"Pasco";
+  if(fn.includes("lee"))return"Lee";
+  // Detect from addresses
+  if(records.length>0){
+    const addr=(records[0].address||records[0].permit_address||"").toUpperCase();
+    const PINELLAS_CITIES=["CLEARWATER","PINELLAS PARK","ST. PETE","SAINT PETE","ST PETE","TARPON SPRINGS","DUNEDIN","LARGO","INDIAN ROCKS","REDINGTON","TREASURE ISLAND","MADEIRA BEACH","PALM HARBOR","SAFETY HARBOR","OLDSMAR","BELLEAIR","GULFPORT","SEMINOLE FL","TIERRA VERDE","KENNETH CITY"];
+    const HILLS_CITIES=["TAMPA","BRANDON","RIVERVIEW","WESLEY CHAPEL","PLANT CITY","GIBSONTON","RUSKIN","SEFFNER","VALRICO","APOLLO BEACH","WIMAUMA","LUTZ","LAND O LAKES","THONOTOSASSA","NEW TAMPA"];
+    if(PINELLAS_CITIES.some(c=>addr.includes(c)))return"Pinellas";
+    if(HILLS_CITIES.some(c=>addr.includes(c)))return"Hillsborough";
+    // Check ZIP codes
+    const zipMatch=addr.match(/FL\s+(\d{5})/);
+    if(zipMatch){
+      const zip=parseInt(zipMatch[1]);
+      if((zip>=33701&&zip<=33716)||(zip>=33755&&zip<=33786)||(zip>=33755&&zip<=33778))return"Pinellas";
+      if((zip>=33602&&zip<=33619)||(zip>=33629&&zip<=33629)||(zip>=33634&&zip<=33647))return"Hillsborough";
+    }
+  }
+  return"Unknown";
+}
+
+function mapCSVRecord(row,county,permitType){
+  const address=row.address||row.permit_address||row.site_address||"";
+  const recordNum=row.record_number||row.permit_number||row.record_num||"";
+  let city="";
+  const cm=address.match(/,?\s*([A-Za-z][A-Za-z\s]+?)\s+FL\s+\d{5}/i);
+  if(cm)city=cm[1].trim();
+  const desc=[row.description||row.worktype||"",row.project_name||""].filter(Boolean).join(" | ");
+  const hurr=HURRICANE_KW.some(k=>desc.toLowerCase().includes(k));
+  const permit={
+    id:(recordNum||Math.random().toString(36).slice(2))+"_"+address.slice(0,30),
+    permit_number:recordNum,address,city,county,
+    permit_type:row.record_type||row.application_type||permitType||"",
+    description:desc,
+    status:row.status||row.application_status||row.statuscurrent||"",
+    date_filed:row.date||row.date_filed||row.applieddate||row.processed_date||"",
+    project_value:parseFloat(row.project_value||row.valuation||row.estimated_cost||"")||null,
+    sqft:parseFloat(row.square_footage||row.sqft||"")||null,
+    owner_name:row.property_owner_name||row.owner||"",
+    gc_name:row.contractor_name||row.contractor||"",
+    gc_phone:row.contractor_phone_number||row.phone||"",
+    source:"CSV",is_hurricane:hurr,score:0,
+  };
+  permit.score=scorePermit(permit);
+  return permit;
+}
+
+// ── UI ATOMS ──────────────────────────────────────────────────────────────────
+const Icon={
+  dash:()=><svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>,
+  leads:()=><svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>,
+  map:()=><svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6-10l6-3m0 13l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-1.447-.894L15 9m0-2v13"/></svg>,
+  pipe:()=><svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>,
+  sync:()=><svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>,
+  storm:()=><svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>,
+  fire:()=><svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z"/><path d="M9.879 16.121A3 3 0 1012.015 11L11 14H9c0 .768.293 1.536.879 2.121z"/></svg>,
+};
+
+function ScorePill({score}){
+  const color=score>=8?T.hot:score>=5?T.warm:T.gray;
+  const label=score>=8?"Hot":score>=5?"Warm":"Cold";
+  return<span style={{color,fontWeight:700,fontSize:12,letterSpacing:.5}}>{score}·{label}</span>;
+}
+
+function Tag({type,small}){
+  const cfg={
+    hurricane:{bg:T.hurricaneGlow,color:T.hurricane,icon:"🌀",label:"Hurricane"},
+    hot:{bg:T.hotGlow,color:T.hot,icon:"🔥",label:"HOT"},
+    applied:{bg:T.blueGlow,color:T.blue,icon:null,label:"Applied"},
+    issued:{bg:T.greenGlow,color:T.green,icon:null,label:"Issued"},
+  };
+  const c=cfg[type]||{bg:"rgba(255,255,255,0.05)",color:T.gray,icon:null,label:type};
+  return<span style={{background:c.bg,color:c.color,fontSize:small?10:11,fontWeight:700,padding:small?"1px 6px":"2px 8px",borderRadius:4,whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:3}}>
+    {c.icon&&<span>{c.icon}</span>}{c.label}
+  </span>;
+}
+
+function Sel({value,onChange,options,style={}}){
+  return<select value={value} onChange={e=>onChange(e.target.value)} style={{background:T.bgCard,color:T.white,border:`1px solid ${T.border}`,borderRadius:8,padding:"7px 12px",fontSize:13,cursor:"pointer",outline:"none",...style}}>
+    {options.map(o=><option key={o} value={o}>{o}</option>)}
+  </select>;
+}
+
+function NavItem({icon,label,active,onClick,badge}){
+  return<button onClick={onClick} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"10px 14px",borderRadius:10,border:"none",cursor:"pointer",background:active?"rgba(200,224,0,0.1)":"transparent",color:active?T.lime:T.gray,fontWeight:active?600:400,fontSize:13,textAlign:"left",position:"relative",transition:"all 0.15s"}}>
+    <span style={{color:active?T.lime:T.gray}}>{icon()}</span>
+    {label}
+    {badge>0&&<span style={{marginLeft:"auto",background:T.hot,color:"#fff",fontSize:10,fontWeight:700,borderRadius:10,padding:"1px 6px",minWidth:18,textAlign:"center"}}>{badge}</span>}
+    {active&&<span style={{position:"absolute",left:0,top:"50%",transform:"translateY(-50%)",width:2,height:"60%",background:T.lime,borderRadius:"0 2px 2px 0"}}/>}
+  </button>;
+}
+
+function StatCard({title,value,sub,color,icon,glow,onClick}){
+  return<div className="stat-glow" onClick={onClick} style={{background:T.bgCard,border:`1px solid ${T.border}`,borderRadius:14,padding:"20px 22px",flex:1,minWidth:150,position:"relative",overflow:"hidden",cursor:onClick?"pointer":"default",transition:"border-color 0.15s,transform 0.15s"}}
+    onMouseEnter={e=>{if(onClick){e.currentTarget.style.borderColor=color||T.lime;e.currentTarget.style.transform="translateY(-2px)";}}}
+    onMouseLeave={e=>{if(onClick){e.currentTarget.style.borderColor=T.border;e.currentTarget.style.transform="translateY(0)";}}}>
+    <div style={{position:"absolute",top:-20,right:-20,width:80,height:80,background:glow||"rgba(200,224,0,0.05)",borderRadius:"50%",filter:"blur(20px)"}}/>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+      <div style={{color:T.gray,fontSize:11,fontWeight:600,letterSpacing:1.2,textTransform:"uppercase"}}>{title}</div>
+      {icon&&<span style={{fontSize:16}}>{icon}</span>}
+    </div>
+    <div style={{color:color||T.lime,fontSize:34,fontWeight:900,lineHeight:1,letterSpacing:-1}}>{value}</div>
+    {sub&&<div style={{color:T.gray,fontSize:11,marginTop:6}}>{sub}</div>}
+  </div>;
+}
+
+// ── DASHBOARD ─────────────────────────────────────────────────────────────────
+function Dashboard({permits,crmLeads,onPage}){
+  const total=permits.length;
+  const hCount=permits.filter(isHurricane).length;
+  const hot=permits.filter(p=>scorePermit(p)>=8).length;
+  const commercial=permits.filter(p=>(p.permit_type||"").toLowerCase().includes("commercial")).length;
+  const multifamily=permits.filter(p=>(p.permit_type||"").toLowerCase().includes("multi")||(p.description||"").toLowerCase().includes("multifamily")).length;
+  const ownerBuilder=permits.filter(isOwnerBuilder).length;
+  const wonVal=crmLeads.filter(l=>l.stage==="Won").reduce((s,l)=>s+(parseFloat(l.permits?.project_value)||0),0);
+
+  const byCounty={};
+  permits.forEach(p=>{byCounty[p.county]=(byCounty[p.county]||0)+1;});
+  const topLeads=[...permits].map(p=>({...p,_s:scorePermit(p)})).sort((a,b)=>b._s-a._s).slice(0,10);
+
+  return<div style={{padding:"32px 36px",overflowY:"auto",height:"100%",background:T.bg}} className="animate-in">
+    <div style={{marginBottom:28}}>
+      <div style={{color:T.gray,fontSize:12,fontWeight:600,letterSpacing:2,textTransform:"uppercase",marginBottom:6}}>Florida Construction Intelligence</div>
+      <h1 style={{color:T.white,fontSize:30,fontWeight:900,letterSpacing:-1,margin:0,fontFamily:"'Space Grotesk',sans-serif"}}>Find opportunities before everyone else.</h1>
+      <p style={{color:T.gray,fontSize:13,margin:"6px 0 0"}}>Track permits, detect recovery projects, and find high-value construction leads across Florida.</p>
+    </div>
+
+    <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:28}}>
+      <StatCard title="Total Permits" value={total.toLocaleString()} sub="in database" color={T.lime} glow={T.limeGlow} onClick={()=>onPage("leads")}/>
+      <StatCard title="🌀 FEMA / Hurricane" value={hCount.toLocaleString()} sub="Helene · Milton · Recovery" color={T.hurricane} icon="🌀" glow={T.hurricaneGlow} onClick={()=>onPage("leads","hurricane")}/>
+      <StatCard title="🔥 HOT Leads" value={hot.toLocaleString()} sub="score 8–10" color={T.hot} icon="🔥" glow={T.hotGlow} onClick={()=>onPage("leads","hot")}/>
+      <StatCard title="🏢 Multifamily" value={multifamily.toLocaleString()} sub="new construction" color={T.blue} glow={T.blueGlow} onClick={()=>onPage("leads","multifamily")}/>
+      <StatCard title="🔨 Owner-Builder" value={ownerBuilder.toLocaleString()} sub="no GC — direct opportunity" color={T.warm} glow="rgba(255,165,2,0.15)" onClick={()=>onPage("leads","owner-builder")}/>
+      <StatCard title="✓ Pipeline Won" value={wonVal>0?fmt(wonVal):"$0"} sub="revenue closed" color={T.green} icon="✓" glow={T.greenGlow} onClick={()=>onPage("pipeline")}/>
+    </div>
+
+    <div style={{display:"grid",gridTemplateColumns:"1fr 340px",gap:20,marginBottom:20}}>
+      <div style={{background:T.bgCard,border:`1px solid ${T.border}`,borderRadius:14,padding:22}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <h3 style={{color:T.white,margin:0,fontSize:15,fontWeight:700}}>Top Priority Leads</h3>
+          <button onClick={()=>onPage("leads")} style={{background:"transparent",border:`1px solid ${T.lime}`,color:T.lime,borderRadius:8,padding:"5px 14px",fontSize:12,cursor:"pointer",fontWeight:600}}>View all {total.toLocaleString()} →</button>
+        </div>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+          <thead><tr style={{color:T.gray}}>{["Score","Address","County","Value","Status","Tag"].map(h=><th key={h} style={{padding:"6px 10px 10px",fontWeight:600,textAlign:"left",fontSize:11,letterSpacing:.5,textTransform:"uppercase"}}>{h}</th>)}</tr></thead>
+          <tbody>{topLeads.map((p,i)=>(
+            <tr key={i} style={{borderTop:`1px solid ${T.border}`}}>
+              <td style={{padding:"10px"}}><ScorePill score={p._s}/></td>
+              <td style={{padding:"10px",maxWidth:220}}>
+                <div style={{color:T.white,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:13}}>{p.address}</div>
+                <div style={{color:T.gray,fontSize:11}}>{p.city}</div>
+              </td>
+              <td style={{padding:"10px",color:T.gray,fontSize:12}}>{p.county}</td>
+              <td style={{padding:"10px",color:T.lime,fontWeight:700,whiteSpace:"nowrap"}}>{fmt(p.project_value)}</td>
+              <td style={{padding:"10px"}}><span style={{color:p.status==="Applied"?T.blue:p.status==="Issued"?T.green:T.gray,fontWeight:600,fontSize:12}}>{p.status||"—"}</span></td>
+              <td style={{padding:"10px"}}>{isHurricane(p)&&<Tag type="hurricane" small/>}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        <div style={{background:T.bgCard,border:`1px solid ${T.border}`,borderRadius:14,padding:20}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+            <span style={{fontSize:16}}>🌀</span>
+            <h3 style={{color:T.white,margin:0,fontSize:14,fontWeight:700}}>Hurricane Hotspots</h3>
+            <span style={{background:T.hurricaneGlow,color:T.hurricane,fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700}}>FEMA DR-4834-FL</span>
+          </div>
+          {[["Pinellas","847+","$285K"],["Hillsborough","412+","$310K"],["Manatee","298+","$265K"],["Lee","523+","$295K"],["Pasco","187+","$245K"]].map(([c,r,v])=>(
+            <div key={c} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${T.border}`}}>
+              <span style={{color:T.white,fontWeight:600,fontSize:13}}>{c}</span>
+              <span style={{color:T.hurricane,fontWeight:700,fontSize:13}}>{r}</span>
+              <span style={{color:T.lime,fontWeight:700,fontSize:13}}>{v}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{background:T.bgCard,border:`1px solid ${T.border}`,borderRadius:14,padding:20}}>
+          <h3 style={{color:T.white,margin:"0 0 14px",fontSize:14,fontWeight:700}}>By County</h3>
+          {Object.entries(byCounty).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([county,count])=>(
+            <div key={county} style={{marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                <span style={{color:T.grayLight,fontSize:12}}>{county}</span>
+                <span style={{color:T.white,fontWeight:700,fontSize:12}}>{count.toLocaleString()}</span>
+              </div>
+              <div style={{background:T.border,borderRadius:4,height:4}}>
+                <div style={{width:`${(count/Math.max(...Object.values(byCounty)))*100}%`,background:`linear-gradient(90deg,${T.lime},${T.blue})`,height:"100%",borderRadius:4,transition:"width 0.5s ease"}}/>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  </div>;
+}
+
+// ── LEADS TABLE ───────────────────────────────────────────────────────────────
+function LeadsTable({permits,onSelect,initialFilter,onFilterUsed}){
+  const[search,setSearch]=useState("");
+  const[county,setCounty]=useState("All Counties");
+  const[status,setStatus]=useState("All Statuses");
+  const[permitType,setPermitType]=useState("All Types");
+  const[valueRange,setValueRange]=useState("Any Value");
+  const[yearFilter,setYearFilter]=useState("All Years");
+  const[hurricaneOnly,setHurricaneOnly]=useState(false);
+  const[ownerBuilderOnly,setOwnerBuilderOnly]=useState(false);
+  const[multifamilyOnly,setMultifamilyOnly]=useState(false);
+  const[hotOnly,setHotOnly]=useState(false);
+  const[page,setPage]=useState(1);
+  const[selected,setSelected]=useState(new Set());
+
+  useEffect(()=>{
+    if(!initialFilter)return;
+    setHurricaneOnly(false);setOwnerBuilderOnly(false);setMultifamilyOnly(false);setHotOnly(false);
+    if(initialFilter==="hurricane")setHurricaneOnly(true);
+    else if(initialFilter==="owner-builder")setOwnerBuilderOnly(true);
+    else if(initialFilter==="multifamily")setMultifamilyOnly(true);
+    else if(initialFilter==="hot")setHotOnly(true);
+    setPage(1);
+    if(onFilterUsed)onFilterUsed();
+  },[initialFilter]);
+  const PER=50;
+  const bS={background:T.bgCard,color:T.white,border:`1px solid ${T.border}`,borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:13};
+
+  const filtered=useMemo(()=>{
+    let list=permits.map(p=>({...p,_s:scorePermit(p),_h:isHurricane(p),_ob:isOwnerBuilder(p),_mf:(p.permit_type||"").toLowerCase().includes("multi")||(p.description||"").toLowerCase().includes("multifamily")}));
+    if(search){const q=search.toLowerCase();list=list.filter(p=>(p.address||"").toLowerCase().includes(q)||(p.gc_name||"").toLowerCase().includes(q)||(p.owner_name||"").toLowerCase().includes(q)||(p.description||"").toLowerCase().includes(q)||(p.permit_number||"").toLowerCase().includes(q));}
+    if(county!=="All Counties")list=list.filter(p=>p.county===county);
+    if(status!=="All Statuses")list=list.filter(p=>p.status===status);
+    if(permitType!=="All Types"){
+      const pt=permitType.toLowerCase();
+      if(pt.includes("fema")||pt.includes("hurricane"))list=list.filter(p=>p._h);
+      else if(pt.includes("owner"))list=list.filter(p=>p._ob);
+      else if(pt.includes("multifamily")||pt.includes("multi"))list=list.filter(p=>p._mf);
+      else if(pt.includes("single family"))list=list.filter(p=>(p.permit_type||"").toLowerCase().includes("single")||(p.permit_type||"").toLowerCase().includes("sfr")||(p.permit_type||"").toLowerCase().includes("residential new"));
+      else if(pt.includes("commercial"))list=list.filter(p=>(p.permit_type||"").toLowerCase().includes("commercial"));
+      else if(pt.includes("demolition"))list=list.filter(p=>(p.permit_type||"").toLowerCase().includes("demo"));
+      else if(pt.includes("renovation")||pt.includes("alteration"))list=list.filter(p=>(p.permit_type||"").toLowerCase().includes("renov")||(p.permit_type||"").toLowerCase().includes("alter")||(p.permit_type||"").toLowerCase().includes("repair")||(p.permit_type||"").toLowerCase().includes("remodel"));
+      else if(pt.includes("buildout")||pt.includes("tenant"))list=list.filter(p=>(p.description||"").toLowerCase().includes("buildout")||(p.description||"").toLowerCase().includes("tenant")||(p.description||"").toLowerCase().includes("build-out"));
+      else list=list.filter(p=>(p.permit_type||"").toLowerCase().includes(pt));
+    }
+    if(hurricaneOnly)list=list.filter(p=>p._h);
+    if(ownerBuilderOnly)list=list.filter(p=>p._ob);
+    if(multifamilyOnly)list=list.filter(p=>p._mf);
+    if(hotOnly)list=list.filter(p=>p._s>=8);
+    // Filter by value range
+    const vr=VALUE_RANGES.find(r=>r.label===valueRange);
+    if(vr&&vr.min>0||vr&&vr.max!==Infinity){
+      list=list.filter(p=>{const v=parseFloat(p.project_value)||0;return v>=vr.min&&v<vr.max;});
+    }
+    // Filter by year
+    const yf=YEAR_FILTERS.find(y=>y.label===yearFilter);
+    if(yf&&yf.year>0){
+      list=list.filter(p=>{if(!p.date_filed)return false;const y=new Date(p.date_filed).getFullYear();return y>=yf.year;});
+    }
+    return list.sort((a,b)=>b._s-a._s);
+  },[permits,search,county,status,permitType,valueRange,yearFilter,hurricaneOnly,ownerBuilderOnly,multifamilyOnly,hotOnly]);
+
+  const totalPages=Math.max(1,Math.ceil(filtered.length/PER));
+  const pageData=filtered.slice((page-1)*PER,page*PER);
+
+  const exportCSV=()=>{
+    const src=selected.size>0?filtered.filter(p=>selected.has(p.id)):filtered;
+    const h=["Permit#","Address","County","Type","Value","Date","Status","Owner","GC","Score","Hurricane"];
+    const rows=src.map(p=>[p.permit_number,p.address,p.county,p.permit_type,p.project_value,p.date_filed,p.status,p.owner_name,p.gc_name,p._s||scorePermit(p),isHurricane(p)?"Yes":"No"]);
+    const csv=[h,...rows].map(r=>r.map(c=>`"${c||""}"`).join(",")).join("\n");
+    const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="yeahradar_export.csv";a.click();
+  };
+
+  const toggleSelect=id=>{
+    const s=new Set(selected);
+    if(s.has(id))s.delete(id);else s.add(id);
+    setSelected(s);
+  };
+
+  const selectAll=()=>{
+    if(selected.size===pageData.length)setSelected(new Set());
+    else setSelected(new Set(pageData.map(p=>p.id)));
+  };
+
+  return<div style={{padding:"28px 36px",overflowY:"auto",height:"100%",display:"flex",flexDirection:"column",background:T.bg}} className="animate-in">
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+      <div>
+        <h1 style={{color:T.white,fontSize:24,fontWeight:900,margin:0,fontFamily:"'Space Grotesk',sans-serif",letterSpacing:-0.5}}>Opportunities</h1>
+        <p style={{color:T.gray,fontSize:13,margin:"4px 0 0"}}>{filtered.length.toLocaleString()} permits{selected.size>0&&<span style={{color:T.lime}}> · {selected.size} selected</span>}</p>
+      </div>
+      <button onClick={exportCSV} style={{background:T.lime,color:"#fff",border:"none",borderRadius:10,padding:"10px 22px",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:8}}>
+        ↓ Export{selected.size>0?` (${selected.size})`:" CSV"}
+      </button>
+    </div>
+
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
+      <input value={search} onChange={e=>{setSearch(e.target.value);setPage(1);}} placeholder="Search address, permit #, GC, owner, city..." style={{background:T.bgCard,color:T.white,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 14px",fontSize:13,outline:"none",width:260,flex:"0 0 260px"}}/>
+      <Sel value={county} onChange={v=>{setCounty(v);setPage(1);}} options={COUNTIES}/>
+      <Sel value={permitType} onChange={v=>{setPermitType(v);setPage(1);}} options={PERMIT_TYPES}/>
+      <Sel value={status} onChange={v=>{setStatus(v);setPage(1);}} options={STATUSES}/>
+      <Sel value={valueRange} onChange={v=>{setValueRange(v);setPage(1);}} options={VALUE_RANGES.map(r=>r.label)}/>
+      <Sel value={yearFilter} onChange={v=>{setYearFilter(v);setPage(1);}} options={YEAR_FILTERS.map(y=>y.label)}/>
+    </div>
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+      {[
+        {label:"🌀 FEMA / Hurricane",active:hurricaneOnly,color:T.hurricane,toggle:()=>{const v=!hurricaneOnly;setHurricaneOnly(v);if(v){setHotOnly(false);setOwnerBuilderOnly(false);setMultifamilyOnly(false);}setPage(1);}},
+        {label:"🔥 HOT score 8+",active:hotOnly,color:T.hot,toggle:()=>{const v=!hotOnly;setHotOnly(v);if(v){setHurricaneOnly(false);setOwnerBuilderOnly(false);setMultifamilyOnly(false);}setPage(1);}},
+        {label:"🔨 Owner-Builder",active:ownerBuilderOnly,color:T.warm,toggle:()=>{const v=!ownerBuilderOnly;setOwnerBuilderOnly(v);if(v){setHurricaneOnly(false);setHotOnly(false);setMultifamilyOnly(false);}setPage(1);}},
+        {label:"🏢 Multifamily",active:multifamilyOnly,color:T.blue,toggle:()=>{const v=!multifamilyOnly;setMultifamilyOnly(v);if(v){setHurricaneOnly(false);setHotOnly(false);setOwnerBuilderOnly(false);}setPage(1);}},
+      ].map(f=>(
+        <button key={f.label} onClick={f.toggle} style={{background:f.active?f.color+"22":"transparent",color:f.active?f.color:T.gray,border:`1px solid ${f.active?f.color:T.border}`,borderRadius:8,padding:"6px 14px",fontSize:12,cursor:"pointer",fontWeight:600}}>
+          {f.label}
+        </button>
+      ))}
+      {(hurricaneOnly||ownerBuilderOnly||multifamilyOnly||hotOnly||permitType!=="All Types"||county!=="All Counties"||valueRange!=="Any Value"||yearFilter!=="All Years")&&
+        <button onClick={()=>{setHurricaneOnly(false);setOwnerBuilderOnly(false);setMultifamilyOnly(false);setHotOnly(false);setPermitType("All Types");setCounty("All Counties");setStatus("All Statuses");setValueRange("Any Value");setYearFilter("All Years");setSearch("");setPage(1);}} style={{background:"transparent",color:T.gray,border:`1px solid ${T.border}`,borderRadius:8,padding:"6px 14px",fontSize:12,cursor:"pointer"}}>
+          Clear filters ×
+        </button>
+      }
+    </div>
+
+    <div style={{overflowX:"auto",flex:1,background:T.bgCard,borderRadius:14,border:`1px solid ${T.border}`}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,minWidth:800}}>
+        <thead style={{position:"sticky",top:0,background:T.bgCard,zIndex:10,borderBottom:`1px solid ${T.borderLight}`}}>
+          <tr>
+            <th style={{padding:"12px 14px",width:36}}>
+              <input type="checkbox" checked={selected.size===pageData.length&&pageData.length>0} onChange={selectAll} style={{cursor:"pointer",accentColor:T.lime}}/>
+            </th>
+            {["Score","Address","County","Type","Value","Filed","Status","GC",""].map(h=><th key={h} style={{padding:"12px 10px",fontWeight:600,textAlign:"left",color:T.gray,fontSize:11,letterSpacing:.8,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {pageData.map((p,i)=>{
+            const sel=selected.has(p.id);
+            return<tr key={i} onClick={()=>onSelect(p)} style={{borderTop:`1px solid ${T.border}`,cursor:"pointer",background:sel?"rgba(13,110,253,0.05)":"transparent",transition:"background 0.1s"}} onMouseEnter={e=>!sel&&(e.currentTarget.style.background="rgba(13,110,253,0.03)")} onMouseLeave={e=>!sel&&(e.currentTarget.style.background="transparent")}>
+              <td style={{padding:"10px 14px"}} onClick={e=>e.stopPropagation()}>
+                <input type="checkbox" checked={sel} onChange={()=>toggleSelect(p.id)} style={{cursor:"pointer",accentColor:T.lime}}/>
+              </td>
+              <td style={{padding:"10px"}}><ScorePill score={p._s}/></td>
+              <td style={{padding:"10px",maxWidth:240}}>
+                <div style={{color:T.white,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address}</div>
+                <div style={{color:T.gray,fontSize:11,marginTop:2}}>{p.city}</div>
+                <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:3}}>
+                  {p._h&&<Tag type="hurricane" small/>}
+                  {p._ob&&<span style={{background:"rgba(255,165,2,0.12)",color:T.warm,fontSize:10,fontWeight:700,padding:"1px 6px",borderRadius:4}}>🔨 Owner-Builder</span>}
+                  {p._mf&&<span style={{background:"rgba(61,142,248,0.12)",color:T.blue,fontSize:10,fontWeight:700,padding:"1px 6px",borderRadius:4}}>🏢 Multi</span>}
+                </div>
+              </td>
+              <td style={{padding:"10px",color:T.gray,whiteSpace:"nowrap"}}>{p.county}</td>
+              <td style={{padding:"10px",color:T.grayLight,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:12}}>{p.permit_type||"—"}</td>
+              <td style={{padding:"10px",color:T.lime,fontWeight:700,whiteSpace:"nowrap"}}>{fmt(p.project_value)}</td>
+              <td style={{padding:"10px",color:T.gray,whiteSpace:"nowrap",fontSize:12}}>{p.date_filed?p.date_filed.slice(0,10):"—"}</td>
+              <td style={{padding:"10px"}}><span style={{color:p.status==="Applied"?T.blue:p.status==="Issued"?T.green:T.gray,fontWeight:600,fontSize:12}}>{p.status||"—"}</span></td>
+              <td style={{padding:"10px",color:T.grayLight,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:12}}>{p.gc_name||"—"}</td>
+              <td style={{padding:"10px"}}><button onClick={e=>{e.stopPropagation();onSelect(p);}} style={{background:T.lime,color:"#fff",border:"none",borderRadius:7,padding:"4px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>View</button></td>
+            </tr>;
+          })}
+          {pageData.length===0&&<tr><td colSpan={10} style={{padding:80,textAlign:"center",color:T.gray}}>
+            <div style={{fontSize:32,marginBottom:12}}>🔍</div>
+            <div style={{fontWeight:600,marginBottom:4}}>No permits match your filters</div>
+            <div style={{fontSize:12}}>Try adjusting your search or uploading more CSVs in Data Sync</div>
+          </td></tr>}
+        </tbody>
+      </table>
+    </div>
+
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:14,color:T.gray,fontSize:13}}>
+      <span>Showing {Math.min((page-1)*PER+1,filtered.length).toLocaleString()}–{Math.min(page*PER,filtered.length).toLocaleString()} of {filtered.length.toLocaleString()}</span>
+      <div style={{display:"flex",gap:6,alignItems:"center"}}>
+        <button onClick={()=>setPage(1)} disabled={page===1} style={{...bS,opacity:page===1?0.4:1}}>«</button>
+        <button onClick={()=>setPage(p=>p-1)} disabled={page===1} style={{...bS,opacity:page===1?0.4:1}}>‹</button>
+        <span style={{padding:"5px 14px",color:T.white,background:T.bgCard,borderRadius:6,border:`1px solid ${T.border}`,fontSize:13}}>Page {page} of {totalPages}</span>
+        <button onClick={()=>setPage(p=>p+1)} disabled={page>=totalPages} style={{...bS,opacity:page>=totalPages?0.4:1}}>›</button>
+        <button onClick={()=>setPage(totalPages)} disabled={page>=totalPages} style={{...bS,opacity:page>=totalPages?0.4:1}}>»</button>
+      </div>
+    </div>
+  </div>;
+}
+
+// ── LEAD DETAIL ───────────────────────────────────────────────────────────────
+function LeadDetail({permit,onBack,onAddToCRM,crmLeads}){
+  const[stage,setStage]=useState("New");
+  const[assignTo,setAssignTo]=useState("Emanuel");
+  const[notes,setNotes]=useState("");
+  const[showEmail,setShowEmail]=useState(false);
+  const[copied,setCopied]=useState("");
+  const[saving,setSaving]=useState(false);
+  const[liveData,setLiveData]=useState(null);
+  const[fetchingLive,setFetchingLive]=useState(false);
+  const[fetchError,setFetchError]=useState("");
+  const mapRef=useRef(null);
+  const leafletMapRef=useRef(null);
+  const score=scorePermit(permit);
+  const hurr=isHurricane(permit);
+  const existing=crmLeads.find(l=>l.permit_id===permit.id);
+  const v=fmt(permit.project_value);
+
+  const fetchLiveData=async()=>{
+    setFetchingLive(true);setFetchError("");setLiveData(null);
+    try{
+      const gcName=(permit.gc_name||"").trim();
+      const results={gc:null,pcpao:null,links:{}};
+
+      // 1. Florida DBPR license lookup
+      if(gcName.length>2){
+        try{
+          const term=encodeURIComponent(gcName);
+          const r=await fetch(`https://www.myfloridalicense.com/cc_apiservice/services/LicenseSearch?LastName=${term}&FirstName=&LicenseType=CBC,CGC,CRC&County=&City=&Zip=&LicenseNumber=&format=json`,{headers:{Accept:"application/json"}});
+          if(r.ok){
+            const d=await r.json();
+            if(Array.isArray(d)&&d.length>0){
+              const match=d.find(x=>(x.LicenseName||"").toLowerCase().includes(gcName.toLowerCase().split(" ")[0]))||d[0];
+              results.gc={
+                name:match.LicenseName||gcName,
+                license:match.LicenseNumber||"",
+                type:match.LicenseType||"",
+                status:match.LicenseStatus||"",
+                phone:match.Phone||match.BusinessPhone||"",
+                email:match.Email||"",
+                address:[match.MailAddress,match.City,match.State,match.Zip].filter(Boolean).join(", "),
+              };
+            }
+          }
+        }catch(e){console.log("DBPR error",e);}
+      }
+
+      // 2. PCPAO for Pinellas owner info
+      if((permit.county||"").toLowerCase()==="pinellas"&&permit.address){
+        try{
+          const addr=encodeURIComponent(permit.address.split(",")[0]);
+          const r=await fetch(`https://www.pcpao.gov/api/v1/parcel/address?address=${addr}&format=json`);
+          if(r.ok){
+            const d=await r.json();
+            if(d&&d.parcels&&d.parcels[0]){
+              const p=d.parcels[0];
+              results.pcpao={owner:p.owner_name||"",value:p.just_value||""};
+            }
+          }
+        }catch(e){console.log("PCPAO error",e);}
+      }
+
+      // 3. Always build manual links
+      results.links={
+        dbpr:gcName?`https://www.myfloridalicense.com/wl11.asp?mode=0&cmd=LS&Lic_Name=${encodeURIComponent(gcName)}`:"",
+        sunbiz:gcName?`https://search.sunbiz.org/Inquiry/CorporationSearch/SearchResults?inquiryType=EntityName&searchTerm=${encodeURIComponent(gcName)}`:"",
+        google:`https://www.google.com/search?q=${encodeURIComponent((gcName||permit.owner_name||permit.address)+" Florida contractor phone email")}`,
+        pcpao:permit.address?`https://www.pcpao.gov/general-info/parcel-search?address=${encodeURIComponent(permit.address)}`:"",
+      };
+
+      setLiveData(results);
+    }catch(e){
+      setFetchError("Error al buscar. Intentá de nuevo.");
+    }finally{setFetchingLive(false);}
+  };
+
+  const email=`Subject: Opportunity at ${permit.address} — ${permit.county} County\n\nHi ${permit.gc_name||"[GC Name]"},\n\nI found the permit filed at ${permit.address} in ${permit.county} County (${permit.permit_type}${permit.project_value?` — ${v}`:""}).${hurr?"\n\nThis is a hurricane rebuild / FEMA 50% rule compliance project.":""}\n\nWe have immediate availability to support your project scope in this area.\n\nWorth a 15-minute call this week?\n\n[Your Name]\n[Your Company]\n[Your Phone]\n[Your Email]`;
+  const wa=`Hi ${permit.gc_name||"[GC]"}, I found the permit at ${permit.address}${permit.project_value?` (${v})`:""}. We have availability for this project. Worth a quick call? — [Your Name]`;
+
+  const copy=(text,label)=>{
+    try{navigator.clipboard.writeText(text);}catch(e){const t=document.createElement("textarea");t.value=text;document.body.appendChild(t);t.select();document.execCommand("copy");document.body.removeChild(t);}
+    setCopied(label);setTimeout(()=>setCopied(""),2000);
+  };
+
+  const handleSaveCRM=async()=>{
+    setSaving(true);
+    await onAddToCRM({permit_id:permit.id,stage,assigned_to:assignTo,notes});
+    setSaving(false);
+  };
+
+  // Init map for this specific address
+  useEffect(()=>{
+    if(!window.L||!mapRef.current)return;
+    if(leafletMapRef.current){leafletMapRef.current.remove();leafletMapRef.current=null;}
+
+    // Try to get coords from city lookup first
+    const cityData=getCityCoords(permit.address);
+    const defaultLat=cityData?cityData.coords[0]:27.9506;
+    const defaultLng=cityData?cityData.coords[1]:-82.4572;
+
+    const map=window.L.map(mapRef.current,{
+      center:[defaultLat,defaultLng],
+      zoom:15,
+      zoomControl:true,
+      scrollWheelZoom:false,
+    });
+    window.L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{
+      attribution:'© OpenStreetMap © CARTO',
+      subdomains:"abcd",maxZoom:19,
+    }).addTo(map);
+
+    // Add marker at city coords
+    const color=hurr?"#e76f51":score>=8?"#e63946":"#0d6efd";
+    const icon=window.L.divIcon({
+      className:"",
+      html:`<div style="width:40px;height:40px;background:${color};border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 0 20px ${color}88;border:3px solid #fff">${hurr?"🌀":"📍"}</div>`,
+      iconSize:[40,40],iconAnchor:[20,20],
+    });
+    const marker=window.L.marker([defaultLat,defaultLng],{icon}).addTo(map);
+    marker.bindPopup(`<div style="font-family:Inter,sans-serif"><b>${permit.permit_number||"Permit"}</b><br><small>${permit.address}</small></div>`).openPopup();
+
+    // Try geocoding via Nominatim for exact coords
+    const encoded=encodeURIComponent(permit.address+", Florida, USA");
+    fetch(`https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1`)
+      .then(r=>r.json())
+      .then(data=>{
+        if(data&&data[0]){
+          const lat=parseFloat(data[0].lat);
+          const lng=parseFloat(data[0].lon);
+          marker.setLatLng([lat,lng]);
+          map.setView([lat,lng],16);
+          marker.openPopup();
+        }
+      })
+      .catch(()=>{});
+
+    leafletMapRef.current=map;
+    return()=>{if(leafletMapRef.current){leafletMapRef.current.remove();leafletMapRef.current=null;}};
+  },[permit.id]);
+
+  const Field=({label,value})=><div style={{padding:"10px 0",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:16}}>
+    <span style={{color:T.gray,fontSize:11,textTransform:"uppercase",letterSpacing:.8,flexShrink:0}}>{label}</span>
+    <span style={{color:T.white,fontWeight:600,fontSize:13,textAlign:"right"}}>{value||"—"}</span>
+  </div>;
+
+  return<div style={{padding:"28px 36px",overflowY:"auto",height:"100%",background:T.bg}} className="animate-in">
+    <button onClick={onBack} style={{background:"none",border:"none",color:T.gray,cursor:"pointer",fontSize:13,marginBottom:20,display:"flex",alignItems:"center",gap:6}}>← Back to Leads</button>
+
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:14,marginBottom:24}}>
+      <div>
+        <h1 style={{color:T.white,fontSize:22,fontWeight:900,margin:0,fontFamily:"'Space Grotesk',sans-serif"}}>{permit.permit_number||"No Permit #"}</h1>
+        <p style={{color:T.gray,fontSize:13,margin:"6px 0 10px"}}>{permit.address} · {permit.county} County FL</p>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {hurr&&<Tag type="hurricane"/>}
+          {permit.status==="Applied"&&<Tag type="applied"/>}
+          {permit.status==="Issued"&&<Tag type="issued"/>}
+        </div>
+      </div>
+      <div style={{background:T.bgCard,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 20px",textAlign:"center"}}>
+        <div style={{color:T.gray,fontSize:11,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Priority Score</div>
+        <div style={{color:score>=8?T.hot:score>=5?T.warm:T.gray,fontSize:36,fontWeight:900,letterSpacing:-1}}>{score}</div>
+        <div style={{color:score>=8?T.hot:score>=5?T.warm:T.gray,fontSize:12,fontWeight:700}}>{score>=8?"HOT":score>=5?"WARM":"COLD"}</div>
+      </div>
+    </div>
+
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,marginBottom:20}}>
+      <div style={{background:T.bgCard,border:`1px solid ${T.border}`,borderRadius:14,padding:22}}>
+        <h3 style={{color:T.white,margin:"0 0 4px",fontSize:14,fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>Permit Details</h3>
+        <Field label="Permit Type" value={permit.permit_type}/>
+        <Field label="Project Value" value={fmt(permit.project_value)}/>
+        <Field label="Square Footage" value={permit.sqft?`${parseInt(permit.sqft).toLocaleString()} sqft`:null}/>
+        <Field label="Date Filed" value={permit.date_filed}/>
+        <Field label="Owner / Developer" value={permit.owner_name}/>
+        <Field label="General Contractor" value={permit.gc_name}/>
+        <Field label="GC Phone" value={permit.gc_phone}/>
+
+        {/* FETCH LIVE DATA BUTTON */}
+        <div style={{marginTop:16,paddingTop:16,borderTop:`1px solid ${T.border}`}}>
+          <button onClick={fetchLiveData} disabled={fetchingLive} style={{width:"100%",background:fetchingLive?"rgba(13,110,253,0.1)":"#0d6efd",color:"#fff",border:"none",borderRadius:10,padding:"12px",fontWeight:700,fontSize:14,cursor:fetchingLive?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            {fetchingLive
+              ?<><span style={{width:15,height:15,border:"2px solid rgba(255,255,255,0.3)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",animation:"spin 0.8s linear infinite"}}/> Buscando en DBPR y Sunbiz...</>
+              :<>🔍 Fetch Live Data — GC &amp; Owner Info</>}
+          </button>
+          {fetchError&&<p style={{color:"#dc3545",fontSize:12,margin:"8px 0 0",textAlign:"center"}}>{fetchError}</p>}
+
+          {liveData&&<div style={{marginTop:12,display:"flex",flexDirection:"column",gap:10}}>
+
+            {/* GC from DBPR */}
+            {liveData.gc
+              ?<div style={{background:"rgba(13,110,253,0.07)",border:"1px solid rgba(13,110,253,0.22)",borderRadius:10,padding:14}}>
+                  <div style={{color:"#0d6efd",fontWeight:700,fontSize:11,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>✓ Contractor — DBPR Florida</div>
+                  {[["Nombre",liveData.gc.name],["Licencia",`${liveData.gc.license} ${liveData.gc.type}`.trim()],["Estado",liveData.gc.status],["Dirección",liveData.gc.address]].filter(([,v])=>v).map(([label,val])=>
+                    <div key={label} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${T.border}`}}>
+                      <span style={{color:T.gray,fontSize:11}}>{label}</span>
+                      <span style={{color:label==="Estado"?(val.toLowerCase().includes("active")?"#26a69a":"#dc3545"):"#1a2e42",fontSize:13,fontWeight:600,textAlign:"right",maxWidth:"60%"}}>{val}</span>
+                    </div>
+                  )}
+                  {liveData.gc.phone&&<div style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${T.border}`}}>
+                    <span style={{color:T.gray,fontSize:11}}>Teléfono</span>
+                    <a href={`tel:${liveData.gc.phone}`} style={{color:"#0d6efd",fontSize:13,fontWeight:700,textDecoration:"none"}}>📞 {liveData.gc.phone}</a>
+                  </div>}
+                  {liveData.gc.email&&<div style={{display:"flex",justifyContent:"space-between",padding:"5px 0"}}>
+                    <span style={{color:T.gray,fontSize:11}}>Email</span>
+                    <a href={`mailto:${liveData.gc.email}`} style={{color:"#0d6efd",fontSize:13,fontWeight:700,textDecoration:"none"}}>✉ {liveData.gc.email}</a>
+                  </div>}
+                </div>
+              :<div style={{background:"rgba(244,162,97,0.08)",border:"1px solid rgba(244,162,97,0.25)",borderRadius:10,padding:12}}>
+                  <div style={{color:"#e67e22",fontWeight:700,fontSize:12,marginBottom:4}}>⚠ No encontrado automáticamente en DBPR</div>
+                  <div style={{color:T.gray,fontSize:12}}>Buscá manualmente con los links de abajo</div>
+                </div>
+            }
+
+            {/* Owner from PCPAO */}
+            {liveData.pcpao&&<div style={{background:"rgba(38,166,154,0.07)",border:"1px solid rgba(38,166,154,0.22)",borderRadius:10,padding:14}}>
+              <div style={{color:"#26a69a",fontWeight:700,fontSize:11,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>✓ Propietario — PCPAO Pinellas</div>
+              {liveData.pcpao.owner&&<div style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${T.border}`}}>
+                <span style={{color:T.gray,fontSize:11}}>Dueño</span>
+                <span style={{color:"#1a2e42",fontSize:13,fontWeight:600}}>{liveData.pcpao.owner}</span>
+              </div>}
+              {liveData.pcpao.value&&<div style={{display:"flex",justifyContent:"space-between",padding:"5px 0"}}>
+                <span style={{color:T.gray,fontSize:11}}>Valor tasado</span>
+                <span style={{color:"#1a2e42",fontSize:13,fontWeight:600}}>${parseInt(liveData.pcpao.value).toLocaleString()}</span>
+              </div>}
+            </div>}
+
+            {/* Manual links */}
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              <div style={{color:T.gray,fontSize:11,textTransform:"uppercase",letterSpacing:1,marginBottom:2}}>Búsqueda manual</div>
+              {liveData.links.dbpr&&<a href={liveData.links.dbpr} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:8,background:"rgba(13,110,253,0.06)",color:"#0d6efd",border:"1px solid rgba(13,110,253,0.2)",borderRadius:8,padding:"9px 14px",textDecoration:"none",fontSize:12,fontWeight:600}}>🪪 DBPR — Licencia del GC ↗</a>}
+              {liveData.links.sunbiz&&<a href={liveData.links.sunbiz} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:8,background:"rgba(244,162,97,0.06)",color:"#e67e22",border:"1px solid rgba(244,162,97,0.2)",borderRadius:8,padding:"9px 14px",textDecoration:"none",fontSize:12,fontWeight:600}}>🏢 Sunbiz — Empresa registrada ↗</a>}
+              {liveData.links.pcpao&&<a href={liveData.links.pcpao} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:8,background:"rgba(38,166,154,0.06)",color:"#26a69a",border:"1px solid rgba(38,166,154,0.2)",borderRadius:8,padding:"9px 14px",textDecoration:"none",fontSize:12,fontWeight:600}}>🏠 Property Appraiser — Dueño ↗</a>}
+              <a href={liveData.links.google} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:8,background:"rgba(0,0,0,0.03)",color:T.gray,border:`1px solid ${T.border}`,borderRadius:8,padding:"9px 14px",textDecoration:"none",fontSize:12,fontWeight:600}}>🔍 Google Search ↗</a>
+            </div>
+          </div>}
+        </div>
+
+        {permit.description&&<div style={{marginTop:14}}>
+          <div style={{color:T.gray,fontSize:11,textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>Description</div>
+          <div style={{color:T.grayLight,fontSize:13,lineHeight:1.6,background:"rgba(0,0,0,0.03)",borderRadius:8,padding:12}}>{permit.description}</div>
+        </div>}
+      </div>
+
+      <div style={{display:"flex",flexDirection:"column",gap:16}}>
+        <div style={{background:T.bgCard,border:`1px solid ${existing?T.green:T.border}`,borderRadius:14,padding:22}}>
+          <h3 style={{color:T.white,margin:"0 0 16px",fontSize:14,fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>CRM Pipeline</h3>
+          {existing&&<div style={{background:T.greenGlow,border:`1px solid ${T.green}`,borderRadius:8,padding:"8px 12px",marginBottom:12,color:T.green,fontSize:12,fontWeight:600}}>✓ In pipeline — Stage: {existing.stage} · Assigned: {existing.assigned_to}</div>}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+            <div>
+              <div style={{color:T.gray,fontSize:11,marginBottom:5}}>Pipeline Stage</div>
+              <Sel value={stage} onChange={setStage} options={STAGES} style={{width:"100%"}}/>
+            </div>
+            <div>
+              <div style={{color:T.gray,fontSize:11,marginBottom:5}}>Assign To</div>
+              <Sel value={assignTo} onChange={setAssignTo} options={["Emanuel","Gerardo","Unassigned"]} style={{width:"100%"}}/>
+            </div>
+          </div>
+          <div style={{marginBottom:14}}>
+            <div style={{color:T.gray,fontSize:11,marginBottom:5}}>Sales Notes</div>
+            <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Add notes about this lead..." style={{width:"100%",background:"rgba(255,255,255,0.03)",color:T.white,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 12px",fontSize:13,resize:"vertical",minHeight:80,outline:"none",boxSizing:"border-box"}}/>
+          </div>
+          <button onClick={handleSaveCRM} disabled={saving} style={{width:"100%",background:T.lime,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontWeight:700,fontSize:14,cursor:"pointer",opacity:saving?0.7:1}}>
+            {saving?"Saving...":"+ Save to Pipeline"}
+          </button>
+        </div>
+
+        <div style={{background:T.bgCard,border:`1px solid ${T.border}`,borderRadius:14,padding:22}}>
+          <h3 style={{color:T.white,margin:"0 0 14px",fontSize:14,fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>Outreach</h3>
+          <div style={{display:"flex",gap:10,marginBottom:showEmail?14:0}}>
+            <button onClick={()=>setShowEmail(!showEmail)} style={{flex:1,background:"rgba(61,142,248,0.1)",color:T.blue,border:`1px solid rgba(61,142,248,0.3)`,borderRadius:10,padding:"11px",fontWeight:600,fontSize:13,cursor:"pointer"}}>✉ Generate Email</button>
+            <button onClick={()=>copy(wa,"wa")} style={{flex:1,background:"rgba(46,213,115,0.1)",color:T.green,border:`1px solid rgba(46,213,115,0.3)`,borderRadius:10,padding:"11px",fontWeight:600,fontSize:13,cursor:"pointer"}}>{copied==="wa"?"✓ Copied!":"💬 WhatsApp"}</button>
+          </div>
+          {showEmail&&<div>
+            <pre style={{background:"rgba(0,0,0,0.3)",border:`1px solid ${T.border}`,borderRadius:8,padding:14,color:T.grayLight,fontSize:11,whiteSpace:"pre-wrap",lineHeight:1.7,maxHeight:200,overflowY:"auto"}}>{email}</pre>
+            <button onClick={()=>copy(email,"email")} style={{marginTop:10,width:"100%",background:T.lime,color:"#fff",border:"none",borderRadius:8,padding:"10px",fontWeight:700,fontSize:13,cursor:"pointer"}}>{copied==="email"?"✓ Copied to clipboard!":"Copy Email"}</button>
+          </div>}
+        </div>
+
+        {/* Quick Research Links */}
+        <div style={{background:T.bgCard,border:`1px solid ${T.border}`,borderRadius:14,padding:22}}>
+          <h3 style={{color:T.white,margin:"0 0 6px",fontSize:14,fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>Find Owner & GC Info</h3>
+          <p style={{color:T.gray,fontSize:12,margin:"0 0 14px"}}>These CSVs don't include owner/GC data — open the official portals to get it</p>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {permit.permit_number&&(()=>{
+              const county=(permit.county||"").toLowerCase();
+              const permitUrl=county==="pinellas"
+                ?`https://aca-prod.accela.com/pinellas/Cap/CapHome.aspx?module=Building&TabName=Building`
+                :county==="hillsborough"
+                ?`https://aca-prod.accela.com/hcfl/Cap/CapHome.aspx?module=Building&TabName=Building`
+                :county==="osceola"
+                ?`https://energovweb.osceola.org/EnerGov_Prod/SelfService#/search`
+                :county==="seminole"
+                ?`https://ssl.seminolecountyfl.gov/etrakit3/search/permit.aspx`
+                :`https://aca-prod.accela.com/pinellas/Cap/CapHome.aspx?module=Building&TabName=Building`;
+              const propUrl=county==="pinellas"
+                ?`https://www.pcpao.gov/general-info/parcel-search?address=${encodeURIComponent(permit.address||"")}`
+                :county==="hillsborough"
+                ?`https://www.hcpafl.org/Property-Search?q=${encodeURIComponent(permit.address||"")}`
+                :county==="osceola"
+                ?`https://www.property-appraiser.org/search?query=${encodeURIComponent(permit.address||"")}`
+                :`https://www.pcpao.gov/general-info/parcel-search?address=${encodeURIComponent(permit.address||"")}`;
+              const licUrl=`https://www.myfloridalicense.com/wl11.asp?mode=0&cmd=LS&Lic_Name=${encodeURIComponent(permit.gc_name||"")}`;
+              return<>
+                <a href={permitUrl} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"rgba(61,142,248,0.08)",color:T.blue,border:`1px solid rgba(61,142,248,0.2)`,borderRadius:10,padding:"12px 16px",textDecoration:"none",fontWeight:600,fontSize:13}}>
+                  <div>
+                    <div>📋 Ver permiso completo</div>
+                    <div style={{color:T.gray,fontSize:11,marginTop:2,fontWeight:400}}>Buscá el número: <strong style={{color:T.white}}>{permit.permit_number}</strong> — {permit.county} portal</div>
+                  </div>
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    <span onClick={e=>{e.preventDefault();e.stopPropagation();try{navigator.clipboard.writeText(permit.permit_number||"");}catch(ex){const t=document.createElement("textarea");t.value=permit.permit_number||"";document.body.appendChild(t);t.select();document.execCommand("copy");document.body.removeChild(t);}alert("Número copiado: "+permit.permit_number);}} style={{background:"rgba(61,142,248,0.2)",color:T.blue,borderRadius:6,padding:"3px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Copy #</span>
+                    <span style={{fontSize:16}}>↗</span>
+                  </div>
+                </a>
+                <a href={propUrl} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"rgba(200,224,0,0.06)",color:T.lime,border:`1px solid rgba(200,224,0,0.2)`,borderRadius:10,padding:"12px 16px",textDecoration:"none",fontWeight:600,fontSize:13}}>
+                  <div>
+                    <div>🏠 Ver dueño de la propiedad</div>
+                    <div style={{color:T.gray,fontSize:11,marginTop:2,fontWeight:400}}>Nombre, dirección postal, valor — Property Appraiser</div>
+                  </div>
+                  <span style={{fontSize:16}}>↗</span>
+                </a>
+                {permit.gc_name&&<a href={licUrl} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"rgba(255,107,43,0.08)",color:T.hurricane,border:`1px solid rgba(255,107,43,0.2)`,borderRadius:10,padding:"12px 16px",textDecoration:"none",fontWeight:600,fontSize:13}}>
+                  <div>
+                    <div>🪪 Verificar licencia del GC</div>
+                    <div style={{color:T.gray,fontSize:11,marginTop:2,fontWeight:400}}>{permit.gc_name} — Florida DBPR</div>
+                  </div>
+                  <span style={{fontSize:16}}>↗</span>
+                </a>}
+                <a href={`https://www.google.com/search?q=${encodeURIComponent((permit.gc_name||permit.owner_name||"")+" Florida contractor steel framing")}`} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"rgba(255,255,255,0.03)",color:T.grayLight,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 16px",textDecoration:"none",fontWeight:600,fontSize:13}}>
+                  <div>
+                    <div>🔍 Buscar en Google</div>
+                    <div style={{color:T.gray,fontSize:11,marginTop:2,fontWeight:400}}>{permit.gc_name||permit.owner_name||permit.address}</div>
+                  </div>
+                  <span style={{fontSize:16}}>↗</span>
+                </a>
+              </>;
+            })()}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* Property Map */}
+    <div style={{background:T.bgCard,border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden"}}>
+      <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <h3 style={{color:T.white,margin:0,fontSize:14,fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>Property Location</h3>
+          <div style={{color:T.gray,fontSize:12,marginTop:3}}>{permit.address}</div>
+        </div>
+        <a href={`https://www.google.com/maps/search/${encodeURIComponent(permit.address+", Florida")}`} target="_blank" rel="noreferrer" style={{background:"rgba(61,142,248,0.1)",color:T.blue,border:`1px solid rgba(61,142,248,0.3)`,borderRadius:8,padding:"6px 14px",fontSize:12,fontWeight:600,textDecoration:"none"}}>
+          Open in Google Maps ↗
+        </a>
+      </div>
+      <div ref={mapRef} style={{width:"100%",height:300}}/>
+    </div>
+  </div>;
+}
+
+// ── INTEL MAP ─────────────────────────────────────────────────────────────────
+function IntelMap({permits,onSelect}){
+  const[filter,setFilter]=useState("all");
+  const[selected,setSelected]=useState(null);
+  const mapRef=useRef(null);
+  const leafletRef=useRef(null);
+  const markersRef=useRef([]);
+
+  const clusters=useMemo(()=>{
+    const src=filter==="hurricane"?permits.filter(isHurricane):filter==="hot"?permits.filter(p=>scorePermit(p)>=8):permits;
+    const map={};
+    src.forEach(p=>{
+      const r=getCityCoords(p.address);
+      if(!r)return;
+      const key=`${r.coords[0].toFixed(2)}_${r.coords[1].toFixed(2)}`;
+      if(!map[key])map[key]={lat:r.coords[0],lng:r.coords[1],city:r.city,permits:[]};
+      map[key].permits.push(p);
+    });
+    return Object.values(map).sort((a,b)=>b.permits.length-a.permits.length);
+  },[permits,filter]);
+
+  const hC=permits.filter(isHurricane).length;
+  const hotC=permits.filter(p=>scorePermit(p)>=8).length;
+
+  // Init Leaflet map
+  useEffect(()=>{
+    if(!window.L||!mapRef.current)return;
+    if(leafletRef.current)return;
+    const map=window.L.map(mapRef.current,{
+      center:[27.8,-82.6],
+      zoom:9,
+      zoomControl:true,
+      scrollWheelZoom:true,
+    });
+    window.L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{
+      attribution:'© OpenStreetMap © CARTO',
+      subdomains:"abcd",maxZoom:19,
+    }).addTo(map);
+    leafletRef.current=map;
+    return()=>{if(leafletRef.current){leafletRef.current.remove();leafletRef.current=null;}};
+  },[]);
+
+  // Update markers when clusters change
+  useEffect(()=>{
+    const map=leafletRef.current;
+    if(!map||!window.L)return;
+    // Clear old markers
+    markersRef.current.forEach(m=>m.remove());
+    markersRef.current=[];
+    if(clusters.length===0)return;
+    const maxC=Math.max(...clusters.map(c=>c.permits.length),1);
+    clusters.forEach((c,i)=>{
+      const hurr=c.permits.some(isHurricane);
+      const hot=c.permits.some(p=>scorePermit(p)>=8);
+      const color=filter==="hurricane"?"#e76f51":filter==="hot"?"#e63946":hurr?"#e76f51":hot?"#e63946":"#0d6efd";
+      const size=Math.max(32,Math.min(80,Math.round((c.permits.length/maxC)*80)+20));
+      const label=c.permits.length>999?`${(c.permits.length/1000).toFixed(1)}k`:c.permits.length;
+      const icon=window.L.divIcon({
+        className:"",
+        html:`<div style="width:${size}px;height:${size}px;background:${color};border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:${size>50?12:10}px;color:#ffffff;box-shadow:0 0 ${size/2}px ${color}66;border:2px solid ${color};cursor:pointer;font-family:Inter,sans-serif">${label}</div>`,
+        iconSize:[size,size],iconAnchor:[size/2,size/2],
+      });
+      // Store permits ref for popup clicks
+      window._yeahradarPermits=clusters.reduce((acc,c)=>{c.permits.forEach(p=>{acc[p.id]=p;});return acc;},{});
+      window._yeahradarOnSelect=onSelect;
+
+      const marker=window.L.marker([c.lat,c.lng],{icon}).addTo(map);
+      marker.bindPopup(`
+        <div style="font-family:Inter,sans-serif;min-width:220px">
+          <div style="font-weight:800;font-size:15px;margin-bottom:4px">${c.city}</div>
+          <div style="color:#666;font-size:12px;margin-bottom:8px">${c.permits.length.toLocaleString()} permits</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+            <span style="background:#ff6b2b22;color:#ff6b2b;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">🌀 ${c.permits.filter(isHurricane).length} hurricane</span>
+            <span style="background:#ff475722;color:#ff4757;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">🔥 ${c.permits.filter(p=>scorePermit(p)>=8).length} hot</span>
+          </div>
+          <div style="border-top:1px solid #eee;padding-top:8px">
+            ${c.permits.slice(0,4).map(p=>`
+              <div onclick="window._yeahradarOnSelect(window._yeahradarPermits['${p.id}'])" style="padding:6px 8px;margin-bottom:4px;border-radius:6px;cursor:pointer;border:1px solid #d4e2ef;background:#f7fafd" onmouseover="this.style.background='#e8f1fb';this.style.borderColor='#0d6efd'" onmouseout="this.style.background='#f9f9f9';this.style.borderColor='#d4e2ef'">
+                <div style="font-size:11px;font-weight:700;color:#111;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.address?.slice(0,34)||"—"}</div>
+                <div style="font-size:10px;color:#888;margin-top:2px">${p.permit_type?.slice(0,30)||""} · ${isHurricane(p)?"🌀 ":""}Score ${scorePermit(p)} → <span style="color:#0d6efd;font-weight:700">View →</span></div>
+              </div>
+            `).join("")}
+            ${c.permits.length>4?`<div style="font-size:11px;color:#999;text-align:center;padding:4px">+${c.permits.length-4} more in list →</div>`:""}
+          </div>
+        </div>
+      `,{maxWidth:280});
+      marker.on("click",()=>setSelected(i));
+      markersRef.current.push(marker);
+    });
+    // Fit map to markers
+    if(clusters.length>0){
+      const bounds=window.L.latLngBounds(clusters.map(c=>[c.lat,c.lng]));
+      map.fitBounds(bounds,{padding:[40,40],maxZoom:11});
+    }
+  },[clusters,filter]);
+
+  return<div style={{padding:"28px 36px",height:"100%",background:T.bg,display:"flex",flexDirection:"column"}} className="animate-in">
+    <div style={{marginBottom:16}}>
+      <h1 style={{color:T.white,fontSize:24,fontWeight:900,margin:0,fontFamily:"'Space Grotesk',sans-serif",letterSpacing:-0.5}}>Radar Map</h1>
+      <p style={{color:T.gray,fontSize:13,margin:"4px 0 0"}}>{permits.length.toLocaleString()} permits · Click any cluster to see details</p>
+    </div>
+    <div style={{display:"flex",gap:10,marginBottom:14}}>
+      {[["all",`All (${permits.length.toLocaleString()})`,T.lime],["hurricane",`🌀 Hurricane (${hC.toLocaleString()})`,T.hurricane],["hot",`🔥 HOT (${hotC.toLocaleString()})`,T.hot]].map(([k,l,col])=>(
+        <button key={k} onClick={()=>{setFilter(k);setSelected(null);}} style={{background:filter===k?col+"22":T.bgCard,color:filter===k?col:T.gray,border:`1px solid ${filter===k?col:T.border}`,borderRadius:10,padding:"8px 18px",fontSize:13,cursor:"pointer",fontWeight:600,transition:"all 0.15s"}}>{l}</button>
+      ))}
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 260px",gap:16,flex:1,minHeight:0}}>
+      <div style={{borderRadius:14,overflow:"hidden",border:`1px solid ${T.border}`,position:"relative"}}>
+        <div ref={mapRef} style={{width:"100%",height:"100%",minHeight:480}}/>
+      </div>
+      <div style={{overflowY:"auto",display:"flex",flexDirection:"column",gap:8}}>
+        {selected!==null&&clusters[selected]?(<>
+          <button onClick={()=>setSelected(null)} style={{background:"none",border:"none",color:T.gray,cursor:"pointer",fontSize:12,textAlign:"left",padding:"0 0 4px",display:"flex",alignItems:"center",gap:4}}>← All cities</button>
+          <div style={{background:T.bgCard,border:`1px solid ${T.lime}`,borderRadius:12,padding:16,marginBottom:4}}>
+            <div style={{color:T.white,fontWeight:700,fontSize:16,fontFamily:"'Space Grotesk',sans-serif"}}>{clusters[selected].city}</div>
+            <div style={{color:T.lime,fontSize:30,fontWeight:900,margin:"6px 0 2px",letterSpacing:-1}}>{clusters[selected].permits.length.toLocaleString()}</div>
+            <div style={{color:T.gray,fontSize:12,marginBottom:12}}>permits</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <span style={{background:T.hurricaneGlow,color:T.hurricane,fontSize:11,padding:"3px 10px",borderRadius:6,fontWeight:700}}>🌀 {clusters[selected].permits.filter(isHurricane).length}</span>
+              <span style={{background:T.hotGlow,color:T.hot,fontSize:11,padding:"3px 10px",borderRadius:6,fontWeight:700}}>🔥 {clusters[selected].permits.filter(p=>scorePermit(p)>=8).length} hot</span>
+            </div>
+          </div>
+          {clusters[selected].permits.slice(0,8).map((p,i)=>(
+            <div key={i} onClick={()=>onSelect(p)} style={{background:T.bgCard,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 12px",cursor:"pointer",transition:"all 0.15s"}}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=T.lime;e.currentTarget.style.background=T.bgCardHover;}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.background=T.bgCard;}}>
+              <div style={{color:T.white,fontSize:11,fontWeight:600,marginBottom:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.address?.slice(0,32)||"—"}</div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{display:"flex",gap:5,alignItems:"center"}}><ScorePill score={scorePermit(p)}/>{isHurricane(p)&&<span style={{color:T.hurricane,fontSize:10}}>🌀</span>}</div>
+                <span style={{color:T.lime,fontSize:10,fontWeight:700}}>View →</span>
+              </div>
+            </div>
+          ))}
+          {clusters[selected].permits.length>8&&<div style={{color:T.gray,fontSize:12,textAlign:"center",padding:"6px 0"}}>+{clusters[selected].permits.length-8} more — use Opportunities to see all</div>}
+        </>):(
+          clusters.slice(0,16).map((c,i)=>(
+            <div key={i} onClick={()=>{setSelected(i);leafletRef.current?.setView([c.lat,c.lng],12);}} style={{background:T.bgCard,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",cursor:"pointer",transition:"all 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=T.lime;e.currentTarget.style.background=T.bgCardHover;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.background=T.bgCard;}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+                <span style={{color:T.white,fontWeight:600,fontSize:13}}>{c.city}</span>
+                <span style={{color:T.lime,fontWeight:900,fontSize:14}}>{c.permits.length.toLocaleString()}</span>
+              </div>
+              <div style={{display:"flex",gap:8,marginBottom:5}}>
+                {c.permits.some(isHurricane)&&<span style={{color:T.hurricane,fontSize:11}}>🌀 {c.permits.filter(isHurricane).length}</span>}
+                {c.permits.filter(p=>scorePermit(p)>=8).length>0&&<span style={{color:T.hot,fontSize:11}}>🔥 {c.permits.filter(p=>scorePermit(p)>=8).length}</span>}
+              </div>
+              <div style={{background:T.border,borderRadius:3,height:3}}><div style={{width:`${(c.permits.length/clusters[0].permits.length)*100}%`,background:`linear-gradient(90deg,${T.lime},${T.blue})`,height:"100%",borderRadius:3}}/></div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  </div>;
+}
+
+// ── PIPELINE ──────────────────────────────────────────────────────────────────
+function Pipeline({crmLeads,onUpdate,permits}){
+  const totalVal=crmLeads.reduce((s,l)=>s+(parseFloat(l.permits?.project_value)||parseFloat(l._permitValue)||0),0);
+  const wonVal=crmLeads.filter(l=>l.stage==="Won").reduce((s,l)=>s+(parseFloat(l.permits?.project_value)||parseFloat(l._permitValue)||0),0);
+
+  return<div style={{padding:"28px 36px",overflowY:"auto",height:"100%",background:T.bg}} className="animate-in">
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
+      <div>
+        <h1 style={{color:T.white,fontSize:24,fontWeight:900,margin:0,fontFamily:"'Space Grotesk',sans-serif",letterSpacing:-0.5}}>Pipeline</h1>
+        <p style={{color:T.gray,fontSize:13,margin:"4px 0 0"}}>{crmLeads.length} leads · Pipeline: {fmt(totalVal)}</p>
+      </div>
+      {wonVal>0&&<div style={{background:T.greenGlow,border:`1px solid ${T.green}`,borderRadius:12,padding:"12px 20px",textAlign:"center"}}>
+        <div style={{color:T.gray,fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:1}}>Won</div>
+        <div style={{color:T.green,fontSize:22,fontWeight:900,letterSpacing:-1}}>{fmt(wonVal)}</div>
+      </div>}
+    </div>
+
+    <div style={{display:"flex",gap:12,overflowX:"auto",paddingBottom:16}}>
+      {STAGES.map(s=>{
+        const leads=crmLeads.filter(l=>l.stage===s);
+        const val=leads.reduce((sum,l)=>sum+(parseFloat(l.permits?.project_value)||parseFloat(l._permitValue)||0),0);
+        const stageColor=s==="Won"?T.green:s==="Lost"?T.hot:s==="New"?T.blue:s==="Contacted"?T.warm:T.grayLight;
+        return<div key={s} style={{minWidth:210,flex:"0 0 210px"}}>
+          <div style={{background:T.bgCard,border:`1px solid ${s==="Won"?T.green:s==="Lost"?T.hot:T.border}`,borderRadius:14,padding:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <span style={{color:stageColor,fontWeight:700,fontSize:13}}>{s}</span>
+              <span style={{background:"rgba(255,255,255,0.05)",color:T.gray,fontSize:11,padding:"2px 10px",borderRadius:10,fontWeight:600}}>{leads.length}</span>
+            </div>
+            {val>0&&<div style={{color:T.lime,fontSize:12,fontWeight:700,marginBottom:10}}>{fmt(val)}</div>}
+            <div style={{height:2,background:T.border,borderRadius:2,marginBottom:12}}><div style={{width:`${Math.min(100,(leads.length/Math.max(crmLeads.length,1))*100*STAGES.length)}%`,background:stageColor,height:"100%",borderRadius:2}}/></div>
+            {leads.map((l,i)=>(
+              <div key={i} style={{background:"rgba(0,0,0,0.2)",border:`1px solid ${T.border}`,borderRadius:10,padding:12,marginBottom:8}}>
+                <div style={{color:T.white,fontWeight:600,fontSize:11,marginBottom:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.permits?.address||l._address||"Unknown"}</div>
+                <div style={{color:T.gray,fontSize:10,marginBottom:6}}>{l.permits?.county||l._county} · {l.assigned_to}</div>
+                {(l.permits?.project_value||l._permitValue)&&<div style={{color:T.lime,fontWeight:700,fontSize:12,marginBottom:6}}>{fmt(l.permits?.project_value||l._permitValue)}</div>}
+                <select value={l.stage} onChange={e=>onUpdate(l.id,e.target.value)} style={{width:"100%",background:T.bgCard,color:T.white,border:`1px solid ${T.border}`,borderRadius:6,padding:"4px 8px",fontSize:11,cursor:"pointer"}}>
+                  {STAGES.map(st=><option key={st} value={st}>{st}</option>)}
+                </select>
+              </div>
+            ))}
+            {leads.length===0&&<div style={{color:T.gray,fontSize:12,textAlign:"center",padding:"20px 0",opacity:.6}}>No leads</div>}
+          </div>
+        </div>;
+      })}
+    </div>
+  </div>;
+}
+
+// ── DATA SYNC ─────────────────────────────────────────────────────────────────
+function DataSync({permitCount,countyStats,onImport}){
+  const[dragging,setDragging]=useState(false);
+  const[preview,setPreview]=useState(null);
+  const[importing,setImporting]=useState(false);
+  const[progress,setProgress]=useState(0);
+  const[msg,setMsg]=useState(null);
+
+  const handleFiles=files=>{
+    const allPreviews=[];
+    let processed=0;
+    files.forEach(file=>{
+      const reader=new FileReader();
+      reader.onload=e=>{
+        const records=parseCSV(e.target.result);
+        if(records.length>0){
+          const county=detectCounty(file.name,records);
+          const fn=file.name.toLowerCase();
+          const permitType=fn.includes("storm")?"Storm Damage":fn.includes("commercial")?"Commercial New Construction":"Residential New Construction";
+          const mapped=records.map(r=>mapCSVRecord(r,county,permitType)).filter(r=>r.permit_number||r.address);
+          allPreviews.push({filename:file.name,county,records:mapped,size:records.length});
+        }
+        processed++;
+        if(processed===files.length){
+          // Merge all into one preview
+          const total=allPreviews.reduce((s,p)=>s+p.records.length,0);
+          const allRecords=allPreviews.flatMap(p=>p.records);
+          const counties=[...new Set(allPreviews.map(p=>p.county))].join(", ");
+          setPreview({filename:`${files.length} files`,county:counties,records:allRecords,size:total,breakdown:allPreviews});
+        }
+      };
+      reader.readAsText(file);
+    });
+  };
+
+  const handleFile=file=>handleFiles([file]);
+
+  const fixCountyFromAddress=(address)=>{
+    if(!address)return null;
+    const u=address.toUpperCase();
+    // ZIP code detection
+    const zipMatch=u.match(/FL\s+(\d{5})/);
+    if(zipMatch){
+      const zip=parseInt(zipMatch[1]);
+      const PINELLAS_ZIPS=[[33701,33716],[33755,33786],[33601,33601],[33620,33620],[33629,33629],[33680,33689],[33694,33694]];
+      const HILLS_ZIPS=[[33602,33619],[33621,33628],[33630,33647],[33650,33629],[33655,33679],[33690,33694],[33755,33755]];
+      const ORANGE_ZIPS=[[32801,32839],[32853,32862],[32869,32878],[32885,32887]];
+      const OSCEOLA_ZIPS=[[34741,34747],[34758,34758],[34769,34773]];
+      if(PINELLAS_ZIPS.some(([a,b])=>zip>=a&&zip<=b))return"Pinellas";
+      if(HILLS_ZIPS.some(([a,b])=>zip>=a&&zip<=b))return"Hillsborough";
+      if(ORANGE_ZIPS.some(([a,b])=>zip>=a&&zip<=b))return"Orange";
+      if(OSCEOLA_ZIPS.some(([a,b])=>zip>=a&&zip<=b))return"Osceola";
+    }
+    // City name detection
+    const PINELLAS=["CLEARWATER","LARGO","TARPON SPRINGS","DUNEDIN","PALM HARBOR","SAFETY HARBOR","OLDSMAR","PINELLAS PARK","ST. PETE","ST PETE","SAINT PETE","BELLEAIR","GULFPORT","TREASURE ISLAND","MADEIRA BEACH","INDIAN ROCKS","REDINGTON","TIERRA VERDE","KENNETH CITY","SEMINOLE FL"];
+    const HILLS=["TAMPA","BRANDON","RIVERVIEW","WESLEY CHAPEL","PLANT CITY","GIBSONTON","RUSKIN","SEFFNER","VALRICO","APOLLO BEACH","WIMAUMA","LUTZ","LAND O LAKES","THONOTOSASSA"];
+    const ORANGE=["ORLANDO","WINTER PARK","APOPKA","WINTER GARDEN","WINDERMERE","OCOEE","EDGEWOOD","MAITLAND"];
+    const OSCEOLA=["KISSIMMEE","ST. CLOUD","SAINT CLOUD","POINCIANA","CELEBRATION","HARMONY"];
+    const SEMINOLE=["SANFORD","ALTAMONTE SPRINGS","CASSELBERRY","LAKE MARY","LONGWOOD","OVIEDO","WINTER SPRINGS"];
+    if(PINELLAS.some(c=>u.includes(c)))return"Pinellas";
+    if(HILLS.some(c=>u.includes(c)))return"Hillsborough";
+    if(ORANGE.some(c=>u.includes(c)))return"Orange";
+    if(OSCEOLA.some(c=>u.includes(c)))return"Osceola";
+    if(SEMINOLE.some(c=>u.includes(c)))return"Seminole";
+    return null;
+  };
+
+  const confirmImport=async()=>{
+    if(!preview)return;
+    setImporting(true);setProgress(0);
+
+    // Fix any Unknown counties before importing
+    const fixedRecords=preview.records.map(r=>{
+      if(!r.county||r.county==="Unknown"){
+        const detected=fixCountyFromAddress(r.address);
+        if(detected)return{...r,county:detected};
+      }
+      return r;
+    });
+
+    const CHUNK=500;
+    const chunks=[];
+    for(let i=0;i<fixedRecords.length;i+=CHUNK)chunks.push(fixedRecords.slice(i,i+CHUNK));
+    let added=0;
+    for(let i=0;i<chunks.length;i++){
+      const chunk=chunks[i];
+      const{error}=await sb.from("permits").upsert(chunk,{onConflict:"id",ignoreDuplicates:true});
+      if(!error)added+=chunk.length;
+      setProgress(Math.round(((i+1)/chunks.length)*100));
+    }
+
+    // Auto-fix existing Unknown records in Supabase
+    setMsg({type:"info",text:"Fixing Unknown county records in database..."});
+    const{data:unknowns}=await sb.from("permits").select("id,address").eq("county","Unknown").limit(5000);
+    if(unknowns&&unknowns.length>0){
+      const updates=unknowns
+        .map(p=>({id:p.id,county:fixCountyFromAddress(p.address)||"Unknown"}))
+        .filter(p=>p.county!=="Unknown");
+      if(updates.length>0){
+        for(let i=0;i<updates.length;i+=500){
+          await sb.from("permits").upsert(updates.slice(i,i+500),{onConflict:"id"});
+        }
+      }
+    }
+
+    await onImport();
+    const unknownCount=fixedRecords.filter(r=>r.county==="Unknown").length;
+    setMsg({type:"success",text:`✓ Imported ${added.toLocaleString()} permits · ${unknowns?.length||0} Unknown records fixed automatically`});
+    setPreview(null);setImporting(false);setProgress(0);
+  };
+
+  const syncOrlando=async()=>{
+    setMsg({type:"info",text:"Fetching from Orlando Open Data..."});
+    try{
+      const res=await fetch("https://data.cityoforlando.net/resource/ryhf-m453.json?$limit=500&$order=processed_date+DESC");
+      const data=await res.json();
+      const mapped=data.map(r=>{
+        const desc=r.worktype||"";
+        const hurr=HURRICANE_KW.some(k=>desc.toLowerCase().includes(k));
+        const permit={id:(r.permit_number||Math.random().toString(36))+"_"+(r.permit_address||"").slice(0,30),permit_number:r.permit_number,address:r.permit_address,city:"Orlando",county:"Orange",permit_type:r.application_type,description:desc,status:r.application_status,date_filed:r.processed_date,project_value:parseFloat(r.estimated_cost)||null,sqft:parseFloat(r.square_footage)||null,owner_name:r.property_owner_name,gc_name:r.contractor_name,gc_phone:r.contractor_phone_number,source:"API",is_hurricane:hurr,score:0};
+        permit.score=scorePermit(permit);
+        return permit;
+      });
+      const{error}=await sb.from("permits").upsert(mapped,{onConflict:"id",ignoreDuplicates:true});
+      if(error)throw error;
+      await onImport();
+      setMsg({type:"success",text:`✓ Synced ${mapped.length} permits from City of Orlando`});
+    }catch(e){setMsg({type:"error",text:"Orlando API error: "+e.message});}
+  };
+
+  const portals=[
+    {name:"Orange County / Orlando",type:"Live API",color:T.green,action:"sync"},
+    {name:"Pinellas County",type:"CSV Only",color:T.warm,url:"https://aca-prod.accela.com/pinellas/Cap/CapHome.aspx?module=Building&TabName=Building"},
+    {name:"Hillsborough County",type:"CSV Only",color:T.warm,url:"https://aca-prod.accela.com/hcfl/Cap/CapHome.aspx?module=Building&TabName=Building"},
+    {name:"Sarasota County",type:"CSV Only",color:T.warm,url:"https://aca-prod.accela.com/SARASOTACO/Cap/CapHome.aspx?module=Building&TabName=Building"},
+    {name:"Manatee County",type:"CSV Only",color:T.warm,url:"https://www.mymanatee.org/departments/building___development_services/building_permits"},
+    {name:"Lee County",type:"CSV Only",color:T.warm,url:"https://www.leegov.com/dcd/building/permits"},
+    {name:"Osceola County",type:"CSV Only",color:T.warm,url:"https://energovweb.osceola.org/EnerGov_Prod/SelfService"},
+    {name:"Seminole County",type:"CSV Only",color:T.warm,url:"https://ssl.seminolecountyfl.gov/etrakit3/"},
+  ];
+
+  return<div style={{padding:"28px 36px",overflowY:"auto",height:"100%",background:T.bg}} className="animate-in">
+    <div style={{marginBottom:24}}>
+      <h1 style={{color:T.white,fontSize:24,fontWeight:900,margin:0,fontFamily:"'Space Grotesk',sans-serif",letterSpacing:-0.5}}>Data Sync</h1>
+      <p style={{color:T.gray,fontSize:13,margin:"4px 0 0"}}>{permitCount.toLocaleString()} permits in Supabase — unlimited storage</p>
+    </div>
+
+    {msg&&<div style={{background:msg.type==="success"?T.greenGlow:msg.type==="error"?T.hotGlow:T.blueGlow,border:`1px solid ${msg.type==="success"?T.green:msg.type==="error"?T.hot:T.blue}`,borderRadius:10,padding:"12px 18px",marginBottom:18,color:msg.type==="success"?T.green:msg.type==="error"?T.hot:T.blue,fontSize:13,fontWeight:600,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <span>{msg.text}</span>
+      <button onClick={()=>setMsg(null)} style={{background:"none",border:"none",color:"inherit",cursor:"pointer",fontSize:18,lineHeight:1}}>×</button>
+    </div>}
+
+    <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:24}}>
+      {portals.map(p=>(
+        <div key={p.name} style={{background:T.bgCard,border:`1px solid ${T.border}`,borderRadius:12,padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+              <span style={{color:T.white,fontWeight:700,fontSize:14}}>{p.name}</span>
+              <span style={{background:p.color+"22",color:p.color,fontSize:11,padding:"2px 10px",borderRadius:6,fontWeight:700}}>{p.type}</span>
+              {countyStats[p.name.split(" ")[0]]&&<span style={{background:T.limeGlow,color:T.lime,fontSize:11,padding:"2px 10px",borderRadius:6,fontWeight:700}}>{countyStats[p.name.split(" ")[0]].toLocaleString()} permits</span>}
+            </div>
+            {p.url&&<a href={p.url} target="_blank" rel="noreferrer" style={{color:T.gray,fontSize:11}}>{p.url.replace("https://","")}</a>}
+          </div>
+          {p.action==="sync"
+            ?<button onClick={syncOrlando} style={{background:T.lime,color:"#fff",border:"none",borderRadius:10,padding:"9px 22px",fontWeight:700,fontSize:13,cursor:"pointer"}}>↻ Sync Now</button>
+            :<div style={{display:"flex",gap:8}}>
+              <a href={p.url} target="_blank" rel="noreferrer" style={{background:"transparent",color:T.gray,border:`1px solid ${T.border}`,borderRadius:10,padding:"9px 16px",fontWeight:600,fontSize:12,textDecoration:"none"}}>Open Portal →</a>
+            </div>
+          }
+        </div>
+      ))}
+    </div>
+
+    <div onDragOver={e=>{e.preventDefault();setDragging(true);}} onDragLeave={()=>setDragging(false)} onDrop={e=>{e.preventDefault();setDragging(false);const files=Array.from(e.dataTransfer.files).filter(f=>f.name.endsWith(".csv"));if(files.length)handleFiles(files);}} style={{background:dragging?"rgba(200,224,0,0.05)":T.bgCard,border:`2px dashed ${dragging?T.lime:T.borderLight}`,borderRadius:14,padding:"44px 20px",textAlign:"center",marginBottom:16,transition:"all 0.2s",cursor:"pointer"}}>
+      <div style={{fontSize:32,marginBottom:12}}>📂</div>
+      <div style={{color:T.white,fontWeight:700,fontSize:16,marginBottom:6}}>Seleccioná todos tus CSVs de una vez</div>
+      <div style={{color:T.gray,fontSize:13,marginBottom:18}}>Condado auto-detectado por nombre de archivo y direcciones · Se guardan en Supabase sin límites · Cmd+click o Shift+click para seleccionar varios</div>
+      <label style={{background:T.lime,color:"#fff",borderRadius:10,padding:"11px 28px",fontWeight:700,fontSize:14,cursor:"pointer",display:"inline-block"}}>
+        Choose CSV Files (multiple)
+        <input type="file" accept=".csv" multiple onChange={e=>{if(e.target.files?.length)handleFiles(Array.from(e.target.files));}} style={{display:"none"}}/>
+      </label>
+    </div>
+
+    {preview&&<div style={{background:T.bgCard,border:`1px solid ${T.lime}`,borderRadius:14,padding:22}}>
+      <h3 style={{color:T.white,margin:"0 0 4px",fontSize:15,fontWeight:700}}>{preview.filename}</h3>
+      <p style={{color:T.gray,fontSize:13,margin:"0 0 12px"}}>Counties: <strong style={{color:T.lime}}>{preview.county}</strong> · {preview.records.length.toLocaleString()} total records · Saves to Supabase</p>
+      {preview.breakdown&&<div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
+        {preview.breakdown.map((b,i)=>(
+          <div key={i} style={{background:"rgba(255,255,255,0.04)",border:`1px solid ${T.border}`,borderRadius:8,padding:"6px 12px"}}>
+            <span style={{color:T.lime,fontWeight:700,fontSize:12}}>{b.county}</span>
+            <span style={{color:T.gray,fontSize:12}}> · {b.records.length.toLocaleString()} permits · {b.filename.slice(0,30)}</span>
+          </div>
+        ))}
+      </div>}
+      <div style={{overflowX:"auto",marginBottom:16}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+          <thead><tr>{["Permit #","Address","County","Type","Status","Date"].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:T.gray,fontWeight:600,textTransform:"uppercase",fontSize:10,letterSpacing:.8}}>{h}</th>)}</tr></thead>
+          <tbody>{preview.records.slice(0,5).map((r,i)=>(
+            <tr key={i} style={{borderTop:`1px solid ${T.border}`}}>
+              <td style={{padding:"8px 10px",color:T.white,fontWeight:600}}>{r.permit_number||"—"}</td>
+              <td style={{padding:"8px 10px",color:T.grayLight,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.address}</td>
+              <td style={{padding:"8px 10px",color:T.lime,fontWeight:600}}>{r.county}</td>
+              <td style={{padding:"8px 10px",color:T.gray}}>{r.permit_type||"—"}</td>
+              <td style={{padding:"8px 10px",color:T.gray}}>{r.status||"—"}</td>
+              <td style={{padding:"8px 10px",color:T.gray}}>{r.date_filed||"—"}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+        {preview.records.length>5&&<div style={{color:T.gray,fontSize:12,padding:"6px 10px"}}>...and {(preview.records.length-5).toLocaleString()} more rows</div>}
+      </div>
+      {importing&&<div style={{marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+          <span style={{color:T.grayLight,fontSize:13}}>Uploading to Supabase...</span>
+          <span style={{color:T.lime,fontWeight:700,fontSize:13}}>{progress}%</span>
+        </div>
+        <div style={{background:T.border,borderRadius:4,height:6}}>
+          <div style={{width:`${progress}%`,background:`linear-gradient(90deg,${T.lime},${T.blue})`,height:"100%",borderRadius:4,transition:"width 0.3s ease"}}/>
+        </div>
+      </div>}
+      <div style={{display:"flex",gap:10}}>
+        <button onClick={confirmImport} disabled={importing} style={{background:T.lime,color:"#fff",border:"none",borderRadius:10,padding:"11px 28px",fontWeight:700,fontSize:14,cursor:"pointer",opacity:importing?0.7:1}}>
+          {importing?`Importing... ${progress}%`:`Confirm Import (${preview.records.length.toLocaleString()} records)`}
+        </button>
+        <button onClick={()=>setPreview(null)} disabled={importing} style={{background:"transparent",color:T.gray,border:`1px solid ${T.border}`,borderRadius:10,padding:"11px 20px",fontWeight:600,fontSize:13,cursor:"pointer"}}>Cancel</button>
+      </div>
+    </div>}
+  </div>;
+}
+
+// ── MAIN APP ──────────────────────────────────────────────────────────────────
+// ── INDUSTRIES CONFIG ─────────────────────────────────────────────────────────
+const INDUSTRIES=[
+  {id:"construction",icon:"🏗️",label:"Steel Framing & Construction",desc:"New construction · Multifamily · GC leads · Owner-builder · FEMA recovery",color:"#3d8ef8"},
+];
+
+function IndustrySelector({onSelect,current}){
+  const items=INDUSTRIES;
+  return <div style={{minHeight:"100%",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:32}}>
+    <div style={{width:"100%",maxWidth:900}}>
+      <div style={{textAlign:"center",marginBottom:28}}>
+        <div style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:52,height:52,background:T.lime,borderRadius:15,fontSize:22,fontWeight:900,color:"#fff",fontFamily:"'Space Grotesk',sans-serif",marginBottom:14}}>Y</div>
+        <h1 style={{color:T.white,fontSize:28,fontWeight:900,fontFamily:"'Space Grotesk',sans-serif",letterSpacing:-1,margin:"0 0 8px"}}>Choose your radar</h1>
+        <p style={{color:T.gray,fontSize:13,margin:0}}>Select the market you want to track inside YeahRadar.</p>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:16}}>
+        {items.map(item=>{
+          const active=current===item.id;
+          return <button key={item.id} onClick={()=>onSelect(item.id)} style={{background:active?`${item.color}18`:T.bgCard,border:`1px solid ${active?item.color:T.border}`,borderRadius:18,padding:24,textAlign:"left",cursor:"pointer",transition:"all .15s",boxShadow:active?`0 0 24px ${item.color}22`:"none"}}>
+            <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:12}}>
+              <div style={{width:42,height:42,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",background:`${item.color}22`,fontSize:22}}>{item.icon}</div>
+              <div>
+                <div style={{color:T.white,fontSize:16,fontWeight:800,fontFamily:"'Space Grotesk',sans-serif"}}>{item.label}</div>
+                <div style={{color:item.color,fontSize:11,fontWeight:700,marginTop:2}}>Ready</div>
+              </div>
+            </div>
+            <div style={{color:T.grayLight,fontSize:13,lineHeight:1.5}}>{item.desc}</div>
+            <div style={{marginTop:18,color:item.color,fontSize:12,fontWeight:800}}>Open radar →</div>
+          </button>;
+        })}
+      </div>
+    </div>
+  </div>;
+}
+
+// ── LOGIN SCREEN ──────────────────────────────────────────────────────────────
+function LoginFlow({onLogin}){
+  const[email,setEmail]=useState("");
+  const[password,setPassword]=useState("");
+  const[error,setError]=useState("");
+  const[loading,setLoading]=useState(false);
+
+  const handleLogin=async(e)=>{
+    e.preventDefault();
+    setLoading(true);setError("");
+    const{data,error:err}=await sb.auth.signInWithPassword({email,password});
+    if(err){setError(err.message);setLoading(false);}
+    else onLogin(data.user,"construction");
+  };
+
+  return<div style={{minHeight:"100vh",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+    <div style={{width:"100%",maxWidth:400}}>
+      <div style={{textAlign:"center",marginBottom:36}}>
+        <div style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:56,height:56,background:T.lime,borderRadius:16,fontSize:24,fontWeight:900,color:"#fff",fontFamily:"'Space Grotesk',sans-serif",marginBottom:14}}>Y</div>
+        <div style={{color:T.white,fontSize:26,fontWeight:900,fontFamily:"'Space Grotesk',sans-serif",letterSpacing:-1}}>YeahRadar</div>
+        <div style={{color:T.gray,fontSize:13,marginTop:4}}>Find construction opportunities before everyone else.</div>
+      </div>
+      <div style={{background:T.bgCard,border:`1px solid ${T.border}`,borderRadius:20,padding:32}}>
+        <h2 style={{color:T.white,fontSize:18,fontWeight:700,margin:"0 0 4px",fontFamily:"'Space Grotesk',sans-serif"}}>Sign in</h2>
+        <p style={{color:T.gray,fontSize:13,margin:"0 0 22px"}}>Enter your credentials to access the platform</p>
+        <form onSubmit={handleLogin}>
+          <div style={{marginBottom:14}}>
+            <label style={{color:T.grayLight,fontSize:11,fontWeight:600,letterSpacing:.8,textTransform:"uppercase",display:"block",marginBottom:6}}>Email</label>
+            <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@company.com" required
+              style={{width:"100%",background:"rgba(255,255,255,0.04)",color:T.white,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",fontSize:14,outline:"none",boxSizing:"border-box"}}
+              onFocus={e=>e.target.style.borderColor=T.lime} onBlur={e=>e.target.style.borderColor=T.border}/>
+          </div>
+          <div style={{marginBottom:22}}>
+            <label style={{color:T.grayLight,fontSize:11,fontWeight:600,letterSpacing:.8,textTransform:"uppercase",display:"block",marginBottom:6}}>Password</label>
+            <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" required
+              style={{width:"100%",background:"rgba(255,255,255,0.04)",color:T.white,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",fontSize:14,outline:"none",boxSizing:"border-box"}}
+              onFocus={e=>e.target.style.borderColor=T.lime} onBlur={e=>e.target.style.borderColor=T.border}/>
+          </div>
+          {error&&<div style={{background:T.hotGlow,border:`1px solid ${T.hot}`,borderRadius:8,padding:"10px 14px",color:T.hot,fontSize:13,marginBottom:14}}>{error}</div>}
+          <button type="submit" disabled={loading}
+            style={{width:"100%",background:T.lime,color:"#fff",border:"none",borderRadius:10,padding:"13px",fontWeight:700,fontSize:15,cursor:"pointer",opacity:loading?0.7:1,fontFamily:"'Space Grotesk',sans-serif"}}>
+            {loading?"Signing in...":"Sign In →"}
+          </button>
+        </form>
+      </div>
+      <div style={{textAlign:"center",marginTop:16,color:T.gray,fontSize:12}}>
+        No account? Contact your admin · yeahradar.com
+      </div>
+    </div>
+  </div>;
+}
+
+function App(){
+  const[page,setPage]=useState("dashboard");
+  const[permits,setPermits]=useState([]);
+  const[crmLeads,setCrmLeads]=useState([]);
+  const[selectedLead,setSelectedLead]=useState(null);
+  const[loading,setLoading]=useState(true);
+  const[loadMsg,setLoadMsg]=useState("Connecting to database...");
+  const[user,setUser]=useState(null);
+  const[industry,setIndustry]=useState(null);
+
+  const loadData=useCallback(async()=>{
+    try{
+      setLoadMsg("Loading permits...");
+      // Load all permits in chunks of 1000 (Supabase default limit)
+      let allPermits=[];
+      let from=0;
+      const chunkSize=1000;
+      while(true){
+        const{data:chunk,error:pe}=await sb.from("permits").select("id,permit_number,address,city,county,permit_type,description,status,date_filed,project_value,sqft,owner_name,gc_name,gc_phone,is_hurricane,score").range(from,from+chunkSize-1);
+        if(pe)throw pe;
+        if(!chunk||chunk.length===0)break;
+        allPermits=[...allPermits,...chunk];
+        setLoadMsg(`Loading permits... ${allPermits.length.toLocaleString()}`);
+        if(chunk.length<chunkSize)break;
+        from+=chunkSize;
+      }
+      const p=allPermits;
+      setPermits(p||[]);
+      setLoadMsg("Loading pipeline...");
+      const{data:c,error:ce}=await sb.from("crm_leads").select("*, permits(address,county,project_value)").order("created_at",{ascending:false});
+      if(ce)throw ce;
+      setCrmLeads(c||[]);
+    }catch(e){
+      console.error("Load error:",e);
+      setLoadMsg("Connection error — check Supabase");
+    }
+    setLoading(false);
+  },[]);
+
+  // Check existing session
+  useEffect(()=>{
+    sb.auth.getSession().then(({data:{session}})=>{
+      if(session?.user)setUser(session.user);
+      else setLoading(false);
+    });
+    const{data:{subscription}}=sb.auth.onAuthStateChange((_,session)=>{
+      if(session?.user)setUser(session.user);
+      else{setUser(null);setLoading(false);}
+    });
+    return()=>subscription.unsubscribe();
+  },[]);
+
+  useEffect(()=>{if(user)loadData();},[user,loadData]);
+
+  // Filter permits by industry
+  const filteredPermits=useMemo(()=>{
+    if(!industry||industry==="construction")return permits;
+    if(industry==="roofing"){
+      const kw=["roof","reroof","shingle","flat roof","hurricane","storm damage","sda","sde","substantial damage"];
+      return permits.filter(p=>kw.some(k=>(p.permit_type||"").toLowerCase().includes(k)||(p.description||"").toLowerCase().includes(k)));
+    }
+    if(industry==="energy"){
+      return permits.filter(p=>["Commercial New Construction","Commercial Addition","Commercial Building Other","Industrial"].some(t=>(p.permit_type||"").includes(t)));
+    }
+    return permits;
+  },[permits,industry]);
+
+  const[dashFilter,setDashFilter]=useState(null);
+  const handleLogout=async()=>{
+    await sb.auth.signOut();
+    setUser(null);setIndustry(null);setPermits([]);setCrmLeads([]);
+  };
+
+  // Auto-fix Unknown counties silently in background
+  useEffect(()=>{
+    if(permits.length===0)return;
+    const unknowns=permits.filter(p=>!p.county||p.county==="Unknown"||p.county==="");
+    if(unknowns.length===0)return;
+    // Fix each unknown by reading its address
+    const fixes=unknowns.map(p=>{
+      const addr=(p.address||"").toUpperCase();
+      const PINELLAS=["CLEARWATER","PINELLAS PARK","ST. PETE","SAINT PETE","ST PETE","TARPON SPRINGS","DUNEDIN","LARGO","INDIAN ROCKS","REDINGTON","TREASURE ISLAND","MADEIRA BEACH","PALM HARBOR","SAFETY HARBOR","OLDSMAR","BELLEAIR","GULFPORT","TIERRA VERDE","KENNETH CITY","SEMINOLE FL"];
+      const HILLS=["TAMPA","BRANDON","RIVERVIEW","WESLEY CHAPEL","PLANT CITY","GIBSONTON","RUSKIN","SEFFNER","VALRICO","APOLLO BEACH","WIMAUMA","LUTZ","LAND O LAKES","THONOTOSASSA"];
+      const ORANGE=["ORLANDO","WINTER PARK","APOPKA","WINTER GARDEN","OCOEE","WINDERMERE","MAITLAND","CASSELBERRY","ALTAMONTE","LONGWOOD","LAKE MARY","SANFORD"];
+      const OSCEOLA=["KISSIMMEE","ST. CLOUD","SAINT CLOUD","POINCIANA","CELEBRATION","HARMONY"];
+      const MANATEE=["BRADENTON","PALMETTO","ANNA MARIA","HOLMES BEACH","PARRISH","ELLENTON","LAKEWOOD RANCH"];
+      const SARASOTA=["SARASOTA","VENICE","NORTH PORT","ENGLEWOOD","OSPREY","NOKOMIS"];
+      const PASCO=["NEW PORT RICHEY","HOLIDAY","HUDSON","ZEPHYRHILLS","DADE CITY","LAND O LAKES","WESLEY CHAPEL FL"];
+      const LEE=["FORT MYERS","CAPE CORAL","BONITA SPRINGS","ESTERO","LEHIGH ACRES","SANIBEL","PINE ISLAND"];
+      // ZIP code lookup
+      const zipMatch=addr.match(/FL\s+(\d{5})/);
+      const zip=zipMatch?parseInt(zipMatch[1]):0;
+      let county="Unknown";
+      if(PINELLAS.some(c=>addr.includes(c))||(zip>=33701&&zip<=33786))county="Pinellas";
+      else if(HILLS.some(c=>addr.includes(c))||(zip>=33602&&zip<=33619)||(zip>=33629&&zip<=33647)||(zip>=33510&&zip<=33599))county="Hillsborough";
+      else if(ORANGE.some(c=>addr.includes(c))||(zip>=32801&&zip<=32839)||(zip>=32859&&zip<=32899))county="Orange";
+      else if(OSCEOLA.some(c=>addr.includes(c))||(zip>=34741&&zip<=34773))county="Osceola";
+      else if(MANATEE.some(c=>addr.includes(c))||(zip>=34201&&zip<=34299))county="Manatee";
+      else if(SARASOTA.some(c=>addr.includes(c))||(zip>=34229&&zip<=34293))county="Sarasota";
+      else if(PASCO.some(c=>addr.includes(c))||(zip>=33523&&zip<=33576))county="Pasco";
+      else if(LEE.some(c=>addr.includes(c))||(zip>=33901&&zip<=33999))county="Lee";
+      return{id:p.id,county};
+    }).filter(f=>f.county!=="Unknown");
+    if(fixes.length===0)return;
+    // Update in Supabase in background, no UI feedback needed
+    (async()=>{
+      const CHUNK=50;
+      for(let i=0;i<fixes.length;i+=CHUNK){
+        const chunk=fixes.slice(i,i+CHUNK);
+        await Promise.all(chunk.map(f=>sb.from("permits").update({county:f.county}).eq("id",f.id)));
+      }
+      // Update local state silently
+      setPermits(prev=>prev.map(p=>{
+        const fix=fixes.find(f=>f.id===p.id);
+        return fix?{...p,county:fix.county}:p;
+      }));
+    })();
+  },[permits]);
+
+  const handleAddToCRM=async lead=>{
+    const{data,error}=await sb.from("crm_leads").upsert({...lead,updated_at:new Date().toISOString()},{onConflict:"permit_id"}).select();
+    if(!error&&data)setCrmLeads(prev=>[...prev.filter(l=>l.permit_id!==lead.permit_id),...data]);
+  };
+
+  const handleUpdateLead=async(id,newStage)=>{
+    const{error}=await sb.from("crm_leads").update({stage:newStage,updated_at:new Date().toISOString()}).eq("id",id);
+    if(!error)setCrmLeads(prev=>prev.map(l=>l.id===id?{...l,stage:newStage}:l));
+  };
+
+  const[showReset,setShowReset]=useState(false);
+  const[resetMsg,setResetMsg]=useState("");
+  const[resetting,setResetting]=useState(false);
+
+  const handleReset=async(type,county=null)=>{
+    setResetting(true);
+    setResetMsg(type==="county"?`Borrando ${county}...`:type==="permits"?"Borrando todos los permits...":"Borrando todo...");
+    try{
+      if(type==="county"){
+        await sb.from("permits").delete().eq("county",county);
+      }else if(type==="permits"){
+        await sb.from("permits").delete().neq("id","__never__");
+      }else if(type==="all"){
+        await sb.from("crm_leads").delete().neq("id","00000000-0000-0000-0000-000000000000");
+        await sb.from("permits").delete().neq("id","__never__");
+      }
+      await loadData();
+      setShowReset(false);
+    }catch(e){setResetMsg("Error: "+e.message);}
+    setResetting(false);
+  };
+
+  const countyStats={};
+  permits.forEach(p=>{countyStats[p.county]=(countyStats[p.county]||0)+1;});
+  const hotCount=filteredPermits.filter(p=>scorePermit(p)>=8).length;
+
+  const ResetModal=()=><div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>!resetting&&setShowReset(false)}>
+    <div style={{background:T.bgCard,border:`1px solid ${T.border}`,borderRadius:16,padding:28,width:480,maxWidth:"90vw"}} onClick={e=>e.stopPropagation()}>
+      <h2 style={{color:T.white,fontFamily:"'Space Grotesk',sans-serif",fontSize:20,fontWeight:800,margin:"0 0 6px"}}>Gestionar datos</h2>
+      <p style={{color:T.gray,fontSize:13,margin:"0 0 24px"}}>Elegí qué querés borrar de Supabase</p>
+
+      {/* By county */}
+      <div style={{marginBottom:20}}>
+        <div style={{color:T.grayLight,fontSize:12,fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>Borrar por condado</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+          {Object.entries(countyStats).sort((a,b)=>b[1]-a[1]).map(([county,count])=>(
+            <button key={county} disabled={resetting} onClick={()=>{if(window.confirm(`Borrar ${count.toLocaleString()} permits de ${county}?`))handleReset("county",county);}} style={{background:"rgba(255,71,87,0.08)",color:T.hot,border:`1px solid rgba(255,71,87,0.25)`,borderRadius:8,padding:"7px 14px",fontSize:12,cursor:"pointer",fontWeight:600}}>
+              {county} <span style={{opacity:.7}}>({count.toLocaleString()})</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{height:1,background:T.border,margin:"0 0 20px"}}/>
+
+      {/* Full resets */}
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <button disabled={resetting} onClick={()=>{if(window.confirm(`Borrar todos los ${permits.length.toLocaleString()} permits? El pipeline CRM se mantiene.`))handleReset("permits");}} style={{background:"rgba(255,165,2,0.08)",color:T.warm,border:`1px solid rgba(255,165,2,0.25)`,borderRadius:10,padding:"12px 16px",cursor:"pointer",fontWeight:600,fontSize:13,textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div>Borrar todos los permits</div>
+            <div style={{color:T.gray,fontSize:11,marginTop:2,fontWeight:400}}>Mantiene el pipeline CRM intacto</div>
+          </div>
+          <span style={{fontSize:20}}>🗂️</span>
+        </button>
+        <button disabled={resetting} onClick={()=>{if(window.confirm("Borrar TODO — permits + pipeline CRM completo? Esta acción no se puede deshacer."))handleReset("all");}} style={{background:"rgba(255,71,87,0.08)",color:T.hot,border:`1px solid rgba(255,71,87,0.25)`,borderRadius:10,padding:"12px 16px",cursor:"pointer",fontWeight:600,fontSize:13,textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div>Borrar todo — reset completo</div>
+            <div style={{color:T.gray,fontSize:11,marginTop:2,fontWeight:400}}>Permits + Pipeline CRM. No se puede deshacer.</div>
+          </div>
+          <span style={{fontSize:20}}>⚠️</span>
+        </button>
+      </div>
+
+      {resetMsg&&<div style={{marginTop:14,color:resetting?T.lime:T.hot,fontSize:13,fontWeight:600}}>{resetMsg}</div>}
+
+      <button disabled={resetting} onClick={()=>setShowReset(false)} style={{marginTop:20,background:"transparent",color:T.gray,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 20px",cursor:"pointer",fontSize:13,width:"100%"}}>Cancelar</button>
+    </div>
+  </div>;
+
+  const nav=[
+    {id:"dashboard",icon:Icon.dash,label:"Dashboard"},
+    {id:"leads",icon:Icon.leads,label:"Opportunities"},
+    {id:"map",icon:Icon.map,label:"Radar Map"},
+    {id:"pipeline",icon:Icon.pipe,label:"Pipeline",badge:crmLeads.length},
+    {id:"sync",icon:Icon.sync,label:"Data Sync"},
+  ];
+
+  if(loading)return<div style={{display:"flex",height:"100vh",background:T.bg,alignItems:"center",justifyContent:"center",flexDirection:"column",gap:20}}>
+    <div style={{position:"relative",width:60,height:60}}>
+      <div style={{position:"absolute",inset:0,borderRadius:"50%",border:`2px solid ${T.border}`}}/>
+      <div style={{position:"absolute",inset:0,borderRadius:"50%",border:`2px solid ${T.lime}`,borderTopColor:"transparent",animation:"spin 1s linear infinite"}}/>
+    </div>
+    <div style={{textAlign:"center"}}>
+      <div style={{color:T.white,fontSize:20,fontWeight:900,fontFamily:"'Space Grotesk',sans-serif",letterSpacing:-0.5,marginBottom:6}}>YeahRadar</div>
+      <div style={{color:T.gray,fontSize:13}}>{loadMsg}</div>
+    </div>
+    <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+  </div>;
+
+  // Not logged in → show 2-step login flow
+  if(!user)return<LoginFlow onLogin={(u,ind)=>{setUser(u);setIndustry(ind);}}/>;
+
+  // No industry selected → show selector (when switching from sidebar)
+  if(!industry)return<div style={{height:"100vh",overflow:"hidden",display:"flex",flexDirection:"column"}}>
+    <div style={{background:T.bgSidebar,borderBottom:`1px solid ${T.border}`,padding:"12px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <div style={{background:T.lime,borderRadius:8,width:26,height:26,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,color:"#fff",fontSize:12}}>Y</div>
+        <span style={{color:T.white,fontWeight:800,fontSize:13,fontFamily:"'Space Grotesk',sans-serif"}}>YeahRadar</span>
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:12}}>
+        <span style={{color:T.gray,fontSize:12}}>{user.email}</span>
+        <button onClick={handleLogout} style={{background:"transparent",border:`1px solid ${T.border}`,color:T.gray,borderRadius:7,padding:"5px 12px",fontSize:12,cursor:"pointer"}}>Sign out</button>
+      </div>
+    </div>
+    <div style={{flex:1,overflow:"hidden"}}><IndustrySelector onSelect={setIndustry} current={industry}/></div>
+  </div>;
+
+  return<div style={{display:"flex",height:"100vh",background:T.bg,overflow:"hidden"}}>
+    {showReset&&<ResetModal/>}
+    {/* Sidebar */}
+    <div style={{width:220,background:T.bgSidebar,borderRight:`1px solid ${T.border}`,display:"flex",flexDirection:"column",padding:"20px 12px",flexShrink:0}}>
+      <div style={{marginBottom:28,paddingLeft:4}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{background:T.lime,borderRadius:10,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,color:"#fff",fontSize:15,fontFamily:"'Space Grotesk',sans-serif",boxShadow:`0 4px 12px ${T.limeGlow}`}}>Y</div>
+          <div>
+            <div style={{color:T.white,fontWeight:800,fontSize:12,lineHeight:1,letterSpacing:.5,fontFamily:"'Space Grotesk',sans-serif"}}>YEAHRADAR</div>
+            <div style={{color:T.lime,fontSize:10,marginTop:3,fontWeight:600,letterSpacing:.5}}>YeahRadar</div>
+          </div>
+        </div>
+      </div>
+
+      <nav style={{flex:1,display:"flex",flexDirection:"column",gap:2}}>
+        {nav.map(item=><NavItem key={item.id} {...item} active={page===item.id&&!selectedLead} onClick={()=>{setPage(item.id);setSelectedLead(null);}}/>)}
+      </nav>
+
+      <div style={{borderTop:`1px solid ${T.border}`,paddingTop:14,marginTop:14}}>
+        <div style={{paddingLeft:4}}>
+          <div style={{color:T.white,fontWeight:700,fontSize:12,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user?.email?.split("@")[0]||"User"}</div>
+          <div style={{color:T.gray,fontSize:10,marginBottom:8,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user?.email}</div>
+          {/* Industry badge */}
+          <div onClick={()=>{setIndustry(null);setPage("dashboard");setSelectedLead(null);}} style={{background:`${INDUSTRIES.find(i=>i.id===industry)?.color||T.lime}15`,border:`1px solid ${INDUSTRIES.find(i=>i.id===industry)?.color||T.lime}44`,borderRadius:7,padding:"5px 10px",marginBottom:8,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+            <span style={{fontSize:12}}>{INDUSTRIES.find(i=>i.id===industry)?.icon}</span>
+            <span style={{color:INDUSTRIES.find(i=>i.id===industry)?.color||T.lime,fontSize:10,fontWeight:700,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{INDUSTRIES.find(i=>i.id===industry)?.label||"All"}</span>
+            <span style={{color:T.gray,fontSize:9}}>↻</span>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            <div style={{display:"flex",justifyContent:"space-between"}}>
+              <span style={{color:T.gray,fontSize:11}}>Permits</span>
+              <span style={{color:T.lime,fontWeight:700,fontSize:11}}>{filteredPermits.length.toLocaleString()}</span>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between"}}>
+              <span style={{color:T.gray,fontSize:11}}>HOT leads</span>
+              <span style={{color:T.hot,fontWeight:700,fontSize:11}}>{hotCount.toLocaleString()}</span>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between"}}>
+              <span style={{color:T.gray,fontSize:11}}>Pipeline</span>
+              <span style={{color:T.white,fontWeight:700,fontSize:11}}>{crmLeads.length}</span>
+            </div>
+            <button onClick={()=>setShowReset(true)} style={{marginTop:8,background:"rgba(255,71,87,0.08)",color:T.hot,border:`1px solid rgba(255,71,87,0.2)`,borderRadius:7,padding:"6px 10px",cursor:"pointer",fontSize:11,fontWeight:600,width:"100%"}}>
+              🗑️ Gestionar datos
+            </button>
+            <button onClick={handleLogout} style={{marginTop:6,background:"transparent",color:T.gray,border:`1px solid ${T.border}`,borderRadius:7,padding:"6px 10px",cursor:"pointer",fontSize:11,fontWeight:600,width:"100%"}}>
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* Main */}
+    <div style={{flex:1,overflow:"hidden"}}>
+      {selectedLead
+        ?<LeadDetail permit={selectedLead} onBack={()=>setSelectedLead(null)} onAddToCRM={handleAddToCRM} crmLeads={crmLeads}/>
+        :page==="dashboard"?<Dashboard permits={filteredPermits} crmLeads={crmLeads} onPage={(pg,filter)=>{setDashFilter(filter||null);setPage(pg);setSelectedLead(null);}}/>
+        :page==="leads"?<LeadsTable permits={filteredPermits} onSelect={setSelectedLead} initialFilter={dashFilter} onFilterUsed={()=>setDashFilter(null)}/>
+        :page==="map"?<IntelMap permits={filteredPermits} onSelect={setSelectedLead}/>
+        :page==="pipeline"?<Pipeline crmLeads={crmLeads} onUpdate={handleUpdateLead} permits={filteredPermits}/>
+        :<DataSync permitCount={permits.length} countyStats={countyStats} onImport={loadData}/>
+      }
+    </div>
+  </div>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
