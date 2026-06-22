@@ -591,19 +591,19 @@ function LeadDetail({permit,onBack,onAddToCRM,crmLeads}){
       if(gcName.length>2){
         try{
           const term=encodeURIComponent(gcName);
-          const r=await fetch(`https://www.myfloridalicense.com/cc_apiservice/services/LicenseSearch?LastName=${term}&FirstName=&LicenseType=CBC,CGC,CRC&County=&City=&Zip=&LicenseNumber=&format=json`,{headers:{Accept:"application/json"}});
+          const r=await fetch(`/api/dbpr?name=${encodeURIComponent(term)}`,{headers:{Accept:"application/json"}});
           if(r.ok){
             const d=await r.json();
-            if(Array.isArray(d)&&d.length>0){
-              const match=d.find(x=>(x.LicenseName||"").toLowerCase().includes(gcName.toLowerCase().split(" ")[0]))||d[0];
+            if(d.results&&d.results.length>0){
+              const match=d.results[0];
               results.gc={
-                name:match.LicenseName||gcName,
-                license:match.LicenseNumber||"",
-                type:match.LicenseType||"",
-                status:match.LicenseStatus||"",
-                phone:match.Phone||match.BusinessPhone||"",
-                email:match.Email||"",
-                address:[match.MailAddress,match.City,match.State,match.Zip].filter(Boolean).join(", "),
+                name:match.name||gcName,
+                license:match.license||"",
+                type:match.type||"",
+                status:match.status||"",
+                phone:match.phone||"",
+                email:match.email||"",
+                address:match.address||"",
               };
             }
           }
